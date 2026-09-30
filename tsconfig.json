@@ -1,0 +1,36 @@
+{
+	"compilerOptions": {
+		"target": "ES2024",
+		"module": "ESNext",
+		"lib": ["ES2024"],
+		"moduleResolution": "Bundler",
+		"moduleDetection": "force",
+		"strict": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"skipLibCheck": true,
+		"allowArbitraryExtensions": true,
+		"verbatimModuleSyntax": true,
+		"noEmit": true,
+		"resolveJsonModule": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"types": ["bun", "assets"],
+		"typeRoots": ["./types", "./node_modules/@types"],
+		"paths": {
+			"@oh-my-pi/pi-agent-core": ["../oh-my-pi/packages/agent/src/index.ts"],
+			"@oh-my-pi/pi-agent-core/*": ["../oh-my-pi/packages/agent/src/*"],
+			"@oh-my-pi/pi-ai": ["../oh-my-pi/packages/ai/src/index.ts"],
+			"@oh-my-pi/pi-ai/*": ["../oh-my-pi/packages/ai/src/*"],
+			"@oh-my-pi/pi-catalog": ["../oh-my-pi/packages/catalog/src/index.ts"],
+			"@oh-my-pi/pi-catalog/*": ["../oh-my-pi/packages/catalog/src/*"],
+			"@oh-my-pi/pi-coding-agent": ["../oh-my-pi/packages/coding-agent/src/index.ts"],
+			"@oh-my-pi/pi-coding-agent/*": ["../oh-my-pi/packages/coding-agent/src/*"],
+			"@oh-my-pi/pi-tui": ["../oh-my-pi/packages/tui/src/index.ts"],
+			"@oh-my-pi/pi-tui/*": ["../oh-my-pi/packages/tui/src/*"],
+			"@oh-my-pi/pi-utils": ["../oh-my-pi/packages/utils/src/index.ts"],
+			"@oh-my-pi/pi-utils/*": ["../oh-my-pi/packages/utils/src/*"]
+		}
+	},
+	"include": ["src", "test"]
+}
