@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent";
+import * as fs from "node:fs";
 import { logger } from "@oh-my-pi/pi-utils";
 import { applyStrategyPreset, loadConfig, saveConfig, type Strategy, type StudioConfig } from "./config";
 import { handleBeforeProviderRequest } from "./live/capture";
@@ -21,8 +22,10 @@ async function openStudio(ctx: ExtensionCommandContext, state: { config: StudioC
 	// overlays, which used to leave the studio key-dead). Context dialogs
 	// (select/input opened via runDialog) pass through untouched.
 	const removeInputRouter = ctx.ui.onTerminalInput((data) => {
+		fs.appendFileSync("/tmp/studio-keys.log", `enter closed=${closed} comp=${!!component} dd=${dialogDepth} data=${JSON.stringify(data)}\n`);
 		if (closed || !component || dialogDepth > 0) return undefined;
-		component.handleInput(data);
+		const __handled = component.handleInput(data);
+		fs.appendFileSync("/tmp/studio-keys.log", `  -> handled=${__handled}\n`);
 		return { consume: true };
 	});
 
@@ -50,6 +53,7 @@ async function openStudio(ctx: ExtensionCommandContext, state: { config: StudioC
 					return;
 				}
 				if (state.config.enabled) widget.ensureInstalled(ctx);
+				else widget.remove(ctx);
 			},
 			setSharedText: (text) => {
 				sharedText = text;
@@ -97,7 +101,13 @@ export default async function compressStudio(pi: ExtensionAPI): Promise<void> {
 					state.config = strategy === state.config.strategy
 						? { ...state.config, enabled }
 						: applyStrategyPreset({ ...state.config, enabled }, strategy);
-					await saveConfig(state.config);
+					try {
+						await saveConfig(state.config);
+					} catch (err) {
+						logger.error("compress-studio: config save failed", { error: String(err) });
+						ctx.ui.notify("compress-studio: failed to save config", "error");
+						return;
+					}
 				}
 				if (enabled) widget.ensureInstalled(ctx);
 				else widget.remove(ctx);

@@ -23,7 +23,10 @@ export class LiveView implements ExtensionUiComponent {
 	selected = 0;
 	readonly replay: ReplayState;
 
-	constructor(private readonly env: LiveEnv) {
+	#env: LiveEnv;
+
+	constructor(env: LiveEnv) {
+		this.#env = env;
 		this.replay = new ReplayState(() => env.tui.requestRender());
 	}
 
@@ -39,19 +42,19 @@ export class LiveView implements ExtensionUiComponent {
 			return true;
 		}
 		if (key === "up" || key === "down") {
-			const count = this.env.recentRuns().length;
+			const count = this.#env.recentRuns().length;
 			if (count > 0) {
 				const delta = key === "up" ? -1 : 1;
 				this.selected = Math.max(0, Math.min(count - 1, this.selected + delta));
 				this.replay.reset();
-				this.env.tui.requestRender();
+				this.#env.tui.requestRender();
 			}
 			return true;
 		}
 		if (key === "space") {
 			const run = this.selectedRun();
 			if (run) this.replay.toggle(run.steps.length);
-			this.env.tui.requestRender();
+			this.#env.tui.requestRender();
 			return true;
 		}
 		if (key === "backspace") {
@@ -70,21 +73,21 @@ export class LiveView implements ExtensionUiComponent {
 	}
 
 	async toggleEnabled(): Promise<void> {
-		const next = !this.env.getConfig().enabled;
-		await this.env.updateConfig((c) => ({ ...c, enabled: next }));
-		this.env.refreshWidget();
-		this.env.notify(next ? "compress-studio: live compression ON" : "compress-studio: live compression OFF");
-		this.env.tui.requestRender();
+		const next = !this.#env.getConfig().enabled;
+		await this.#env.updateConfig((c) => ({ ...c, enabled: next }));
+		this.#env.refreshWidget();
+		this.#env.notify(next ? "compress-studio: live compression ON" : "compress-studio: live compression OFF");
+		this.#env.tui.requestRender();
 	}
 
 	private selectedRun(): RunRecord | undefined {
-		const runs = [...this.env.recentRuns()].reverse();
+		const runs = [...this.#env.recentRuns()].reverse();
 		return runs[this.selected];
 	}
 
 	render(width: number): readonly string[] {
-		const theme = this.env.theme;
-		const config = this.env.getConfig();
+		const theme = this.#env.theme;
+		const config = this.#env.getConfig();
 		const lines: string[] = [];
 
 		const status = config.enabled ? theme.fg("success", "ON") : theme.fg("dim", "OFF");
@@ -98,7 +101,7 @@ export class LiveView implements ExtensionUiComponent {
 			lines.push(theme.fg("dim", "runs appear here only when enabled — /compress-studio on"));
 		}
 
-		const runs = [...this.env.recentRuns()].reverse();
+		const runs = [...this.#env.recentRuns()].reverse();
 		if (runs.length > 0) {
 			lines.push(theme.fg("dim", "── recent runs (↑/↓ select, space replay) ──"));
 			for (let i = 0; i < Math.min(runs.length, 8); i++) {

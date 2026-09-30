@@ -39,15 +39,20 @@ const RING_CAPACITY = 50;
 export class RunStore {
 	#ring: RunRecord[] = [];
 
-	constructor(private readonly log?: { warn(message: string, fields?: unknown): void }) {}
+	#log?: { warn(message: string, fields?: unknown): void };
 
-	append(record: RunRecord): void {
+	constructor(log?: { warn(message: string, fields?: unknown): void }) {
+		this.#log = log;
+	}
+
+	append(record: RunRecord): RunRecord {
 		this.#ring.push(record);
 		if (this.#ring.length > RING_CAPACITY) this.#ring.shift();
 		const line = `${JSON.stringify(record)}\n`;
 		fs.appendFile(runsPath(), line, "utf8").catch((err: unknown) => {
-			this.log?.warn("compress-studio: failed to append run record", { error: String(err) });
+			this.#log?.warn("compress-studio: failed to append run record", { error: String(err) });
 		});
+		return record;
 	}
 
 	recent(): readonly RunRecord[] {

@@ -48,6 +48,7 @@ export function runPipeline(
 		let step = engine.apply({ text: current, role, isShellTool: opts?.isShellTool }, {
 			cavemanIntensity: opts?.cavemanIntensity,
 			model: opts?.model,
+			fuzzy: opts?.fuzzy,
 		});
 		if (opts?.postCheck) step = opts.postCheck(step);
 		steps.push(step);

@@ -28,6 +28,8 @@ export interface EngineApplyOptions {
 	cavemanIntensity?: CavemanIntensity;
 	/** Target model for token counting; falls back to the byte-estimate counter. */
 	model?: TokenizerModel;
+	/** gates.fuzzyDedup: when false, dedup runs exact-normalized matching only. */
+	fuzzy?: boolean;
 }
 
 export interface CompressionEngine {

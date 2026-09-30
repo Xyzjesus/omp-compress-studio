@@ -35,11 +35,11 @@ function withinDistance(a: string, b: string, maxEdits: number): boolean {
  * collapsed to their first occurrence. Fuzzy matching is capped to keep the
  * O(n²) pass bounded; beyond the caps only exact normalized matches drop.
  */
-export function deduplicateBlocks(text: string): { text: string; removed: number } {
+export function deduplicateBlocks(text: string, fuzzy = true): { text: string; removed: number } {
 	const blocks = text.split("\n\n");
 	if (blocks.length < 2) return { text, removed: 0 };
 
-	const fuzzyAllowed = blocks.length <= FUZZY_MAX_BLOCKS;
+	const fuzzyAllowed = fuzzy && blocks.length <= FUZZY_MAX_BLOCKS;
 	const kept: string[] = [];
 	const keptNormalized: string[] = [];
 	let removed = 0;
@@ -86,7 +86,7 @@ export const dedupEngine: CompressionEngine = {
 	name: "Session Dedup",
 	apply(input: EngineInput, opts?: EngineApplyOptions) {
 		return finishStep("dedup", input.text, input.text, () => {
-			const { text, removed } = deduplicateBlocks(input.text);
+			const { text, removed } = deduplicateBlocks(input.text, opts?.fuzzy ?? true);
 			return {
 				output: text,
 				techniquesUsed: removed > 0 ? ["session-dedup"] : [],

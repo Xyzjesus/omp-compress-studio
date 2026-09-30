@@ -36,7 +36,10 @@ export class SettingsView implements ExtensionUiComponent {
 	selected = 0;
 	#rows: SettingRow[];
 
-	constructor(private readonly env: SettingsEnv) {
+	#env: SettingsEnv;
+
+	constructor(env: SettingsEnv) {
+		this.#env = env;
 		this.#rows = [
 			{
 				label: "live compression",
@@ -108,8 +111,8 @@ export class SettingsView implements ExtensionUiComponent {
 	}
 
 	private async setConfig(producer: (config: StudioConfig) => StudioConfig): Promise<void> {
-		await this.env.updateConfig(producer);
-		this.env.tui.requestRender();
+		await this.#env.updateConfig(producer);
+		this.#env.tui.requestRender();
 	}
 
 	private async applyStrategy(strategy: Strategy): Promise<void> {
@@ -131,22 +134,22 @@ export class SettingsView implements ExtensionUiComponent {
 	}
 
 	private async promptCostCap(): Promise<void> {
-		const raw = await this.env.runDialog(() =>
-			this.env.ctx.ui.input("Judge cost cap USD (0.01–5)", String(this.env.getConfig().costCapUsd)),
+		const raw = await this.#env.runDialog(() =>
+			this.#env.ctx.ui.input("Judge cost cap USD (0.01–5)", String(this.#env.getConfig().costCapUsd)),
 		);
 		if (raw === undefined) return;
 		const value = Number(raw.trim());
 		if (!Number.isFinite(value) || value < 0.01 || value > 5) {
-			this.env.notify("cost cap must be between 0.01 and 5", "warning");
+			this.#env.notify("cost cap must be between 0.01 and 5", "warning");
 			return;
 		}
 		await this.setConfig((c) => ({ ...c, costCapUsd: value }));
 	}
 
 	private async promptJudgeModel(): Promise<void> {
-		const models = this.env.ctx.models.list();
+		const models = this.#env.ctx.models.list();
 		const options = ["(session model)", ...models.map((model) => `${model.provider}/${model.id}`)];
-		const selected = await this.env.runDialog(() => this.env.ctx.ui.select("Judge model", options));
+		const selected = await this.#env.runDialog(() => this.#env.ctx.ui.select("Judge model", options));
 		if (selected === undefined) return;
 		const spec = selected === "(session model)" ? "" : selected;
 		await this.setConfig((c) => ({ ...c, judgeModel: spec }));
@@ -161,7 +164,7 @@ export class SettingsView implements ExtensionUiComponent {
 		if (key === "up" || key === "down") {
 			const delta = key === "up" ? -1 : 1;
 			this.selected = Math.max(0, Math.min(this.#rows.length - 1, this.selected + delta));
-			this.env.tui.requestRender();
+			this.#env.tui.requestRender();
 			return true;
 		}
 		if (!row) return false;
@@ -181,7 +184,7 @@ export class SettingsView implements ExtensionUiComponent {
 	}
 
 	render(width: number): readonly string[] {
-		const theme = this.env.theme;
+		const theme = this.#env.theme;
 		const lines: string[] = [];
 		lines.push(renderLine(theme.fg("dim", "↑/↓ select · space toggle · ←/→ or h/l cycle · changes save instantly"), width));
 		for (let i = 0; i < this.#rows.length; i++) {

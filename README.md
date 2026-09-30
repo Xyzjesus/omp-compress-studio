@@ -43,7 +43,7 @@ Live compression is **off by default**.
 - **Play** — paste text, toggle lanes (`1..5`, `*` = all/none), gates (`f` fidelity, `d` fuzzy-dedup, `g` risk, `l` quantum), `m` heatmap mode, `Ctrl+R` runs per-lane + combined pipeline with waterfall, step diff, encoder comparison (JSON vs omni-tabular vs TOON), and a heatmap preview. `space`/`Backspace`/`,`.` replay the waterfall.
 - **Compare** — `Ctrl+R` runs all lanes on the shared Play text; `Ctrl+V` verifies compressed outputs with the LLM judge (`Ctrl+M` sets the judge model).
 - **Live** — recent live runs with waterfall + replay; `Ctrl+E` toggles compression.
-- **Settings** — per-engine toggles, strategy preset, caveman intensity, gates, heatmap default, judge cost cap, judge model. Every change saves to `~/.omp/agent/compress-studio/config.json`.
+- **Settings** — per-engine toggles, strategy preset, caveman intensity, gates, heatmap default, judge cost cap, judge model, debug logging. Every change saves to `~/.omp/agent/compress-studio/config.json`.
 
 ### Strategies are presets
 
@@ -51,7 +51,7 @@ The runtime truth is the per-engine switches (`dedup`, `rtk`, `truncate`, `cavem
 
 | Preset | Engines written |
 |---|---|
-| `off` | none (live compression disabled) |
+| `off` | none + sets live compression to `enabled: false` |
 | `lite` | caveman@lite |
 | `standard` | caveman@full |
 | `aggressive` | rtk, caveman@full |

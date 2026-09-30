@@ -22,8 +22,6 @@ const PATTERNS: QuantumPattern[] = [
 	{ category: "unix_ts", regex: /\b1[0-9]{9}(?:[0-9]{3})?\b/g },
 ];
 
-const ALREADY_LOCKED_RE = /⟦QUANTUMLOCK⟧/;
-
 export interface QuantumStats {
 	fragments: number;
 	categories: Record<string, number>;
@@ -39,9 +37,6 @@ const PLACEHOLDER_RE = /⟦Q(\d+)⟧/g;
 
 /** Replace every recognized high-entropy token with a ⟦Q<i>⟧ placeholder. */
 export function quantumLock(text: string): QuantumLock {
-	if (ALREADY_LOCKED_RE.test(text)) {
-		return { text, restore: (t) => t, stats: { fragments: 0, categories: {} } };
-	}
 	const values: string[] = [];
 	const categories: Record<string, number> = {};
 	let locked = text;
@@ -55,7 +50,7 @@ export function quantumLock(text: string): QuantumLock {
 	}
 	return {
 		text: locked,
-		restore: (t) => t.replace(PLACEHOLDER_RE, (_ph, idx: string) => values[Number(idx)] ?? _ph),
+		restore: (t) => t.replace(PLACEHOLDER_RE, (_ph: string, idx: string) => values[Number(idx)] ?? _ph),
 		stats: { fragments: values.length, categories },
 	};
 }

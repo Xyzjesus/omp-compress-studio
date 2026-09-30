@@ -49,16 +49,18 @@ class CompressWidgetComponent implements ExtensionUiComponent {
 /** Installs/removes the below-editor widget and throttles its repaints. */
 export class StudioWidget {
 	#tui: TUI | undefined;
+	#store: RunStore;
+	#configProvider: () => StudioConfig;
 
-	constructor(
-		private readonly store: RunStore,
-		private readonly configProvider: () => StudioConfig,
-	) {}
+	constructor(store: RunStore, configProvider: () => StudioConfig) {
+		this.#store = store;
+		this.#configProvider = configProvider;
+	}
 
 	ensureInstalled(ctx: ExtensionContext): void {
 		const factory: ExtensionUiComponentFactory = (tui: TUI, _theme: Theme) => {
 			this.#tui = tui;
-			return new CompressWidgetComponent(this.store, this.configProvider);
+			return new CompressWidgetComponent(this.#store, this.#configProvider);
 		};
 		ctx.ui.setWidget(WIDGET_KEY, factory, { placement: "belowEditor" });
 	}
