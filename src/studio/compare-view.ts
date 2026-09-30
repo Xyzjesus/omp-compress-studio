@@ -33,7 +33,11 @@ export class CompareView implements ExtensionUiComponent {
 	verifyError: string | undefined;
 	notice: string | undefined;
 
-	constructor(private readonly env: CompareEnv) {}
+	#env: CompareEnv;
+
+	constructor(env: CompareEnv) {
+		this.#env = env;
+	}
 
 	invalidate(): void {}
 	dispose(): void {}
@@ -56,43 +60,44 @@ export class CompareView implements ExtensionUiComponent {
 	}
 
 	run(): void {
-		const text = this.env.getSharedText();
+		const text = this.#env.getSharedText();
 		if (text.trim().length === 0) {
 			this.notice = "no shared text — paste text in Play first";
-			this.env.tui.requestRender();
+			this.#env.tui.requestRender();
 			return;
 		}
 		this.notice = undefined;
-		const model = this.env.ctx.model;
+		const model = this.#env.ctx.model;
 		this.rows = LIVE_LANES.map((lane) => ({
 			lane,
 			step: ENGINE_BY_LANE[lane].apply({ text, role: "tool" }, { model }),
 		})).sort((a, b) => b.step.savingsPercent - a.step.savingsPercent || b.step.compressedTokens - a.step.compressedTokens);
 		this.verifyState = "idle";
 		this.verify = undefined;
-		this.env.tui.requestRender();
+		this.#env.tui.requestRender();
 	}
 
 	async verify_(): Promise<void> {
+		if (this.verifyState === "running") return;
 		if (!this.rows) {
 			this.notice = "run first (Ctrl+R)";
-			this.env.tui.requestRender();
+			this.#env.tui.requestRender();
 			return;
 		}
-		const text = this.env.getSharedText();
+		const text = this.#env.getSharedText();
 		const pairs = this.rows
 			.filter((row) => !row.step.rejected && row.step.output !== text)
 			.map((row) => ({ id: row.lane, original: text, compressed: row.step.output }));
 		if (pairs.length === 0) {
 			this.notice = "no compressed outputs to verify";
-			this.env.tui.requestRender();
+			this.#env.tui.requestRender();
 			return;
 		}
 		this.verifyState = "running";
 		this.verifyError = undefined;
-		this.env.tui.requestRender();
+		this.#env.tui.requestRender();
 		try {
-			const batch = await judgeFidelityBatch(pairs, this.env.ctx, this.env.getConfig());
+			const batch = await judgeFidelityBatch(pairs, this.#env.ctx, this.#env.getConfig());
 			this.verify = batch;
 			this.verifyState = "done";
 			for (const result of batch.results) {
@@ -103,22 +108,22 @@ export class CompareView implements ExtensionUiComponent {
 			this.verifyError = err instanceof Error ? err.message : String(err);
 			this.verifyState = "idle";
 		}
-		this.env.tui.requestRender();
+		this.#env.tui.requestRender();
 	}
 
 	async promptJudgeModel(): Promise<void> {
-		const models = this.env.ctx.models.list();
+		const models = this.#env.ctx.models.list();
 		const options = ["(session model)", ...models.map((model) => `${model.provider}/${model.id}`)];
-		const selected = await this.env.runDialog(() => this.env.ctx.ui.select("Judge model", options));
+		const selected = await this.#env.runDialog(() => this.#env.ctx.ui.select("Judge model", options));
 		if (selected === undefined) return;
 		const spec = selected === "(session model)" ? "" : selected;
-		await this.env.updateConfig((c) => ({ ...c, judgeModel: spec }));
+		await this.#env.updateConfig((c) => ({ ...c, judgeModel: spec }));
 		this.notice = spec.length > 0 ? `judge model: ${spec}` : "judge model: session model";
-		this.env.tui.requestRender();
+		this.#env.tui.requestRender();
 	}
 
 	render(width: number): readonly string[] {
-		const theme = this.env.theme;
+		const theme = this.#env.theme;
 		const lines: string[] = [];
 		lines.push(
 			renderLine(
@@ -126,8 +131,8 @@ export class CompareView implements ExtensionUiComponent {
 				width,
 			),
 		);
-		const judgeModel = this.env.getConfig().judgeModel || `${this.env.ctx.model?.id ?? "(none)"} (session)`;
-		lines.push(renderLine(theme.fg("dim", `judge: ${judgeModel} · cap $${this.env.getConfig().costCapUsd}`), width));
+		const judgeModel = this.#env.getConfig().judgeModel || `${this.#env.ctx.model?.id ?? "(none)"} (session)`;
+		lines.push(renderLine(theme.fg("dim", `judge: ${judgeModel} · cap $${this.#env.getConfig().costCapUsd}`), width));
 
 		if (this.notice) lines.push(theme.fg("warning", `⚠ ${this.notice}`));
 		if (this.verifyError) lines.push(theme.fg("error", `✗ ${this.verifyError}`));
@@ -162,13 +167,13 @@ export class CompareView implements ExtensionUiComponent {
 
 		if (this.verifyState === "running") lines.push(theme.fg("accent", "verifying…"));
 		if (this.verify) {
-			const spent = `spent $${this.verify.totalUsd.toFixed(4)} of $${this.env.getConfig().costCapUsd}` +
+			const spent = `spent $${this.verify.totalUsd.toFixed(4)} of $${this.#env.getConfig().costCapUsd}` +
 				(this.verify.capped ? theme.fg("warning", "  [capped]") : "");
 			lines.push(renderLine(spent, width));
 		}
 
 		const top = this.rows[0];
-		if (top && top.step.output !== this.env.getSharedText()) {
+		if (top && top.step.output !== this.#env.getSharedText()) {
 			lines.push(theme.fg("dim", `best: ${top.lane}`));
 			lines.push(...waterfallLines([stepToRow(top.step)], 1, 0, width, theme));
 		}

@@ -94,6 +94,11 @@ function extractAnthropic(payload: Record<string, unknown>): Extraction | null {
 			if (!isRecord(part)) continue;
 
 			if (part.type === "tool_result") {
+				// Mixed content (e.g. text + screenshot) cannot be rewritten
+				// without destroying the non-text parts — leave such blocks alone.
+				if (Array.isArray(part.content) && part.content.some((p) => isRecord(p) && p.type !== "text")) {
+					continue;
+				}
 				const text = contentToText(part.content);
 				if (text.length === 0) continue;
 				const toolUseId = typeof part.tool_use_id === "string" ? part.tool_use_id : undefined;
@@ -139,6 +144,10 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 	if (!Array.isArray(payload.messages)) return null;
 	const messages = payload.messages;
 	const toolNames = collectToolNames(messages, "openai-completions");
+	let lastUserIndex = -1;
+	for (let i = 0; i < messages.length; i++) {
+		if (isRecord(messages[i]) && messages[i].role === "user") lastUserIndex = i;
+	}
 
 	const blocks: ExtractedBlock[] = [];
 	for (let m = 0; m < messages.length; m++) {
@@ -155,10 +164,11 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 			continue;
 		}
 		if (message.role !== "user") continue;
+		const isNewestUser = m === lastUserIndex;
 		if (typeof message.content === "string" && message.content.length > 0) {
 			blocks.push({
 				kind: "user", path: { message: m, part: 0 }, contentKind: "string",
-				text: message.content, isShellTool: false, isNewestUser: true,
+				text: message.content, isShellTool: false, isNewestUser,
 			});
 		} else if (Array.isArray(message.content)) {
 			for (let p = 0; p < message.content.length; p++) {
@@ -166,7 +176,7 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 				if (isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.length > 0) {
 					blocks.push({
 						kind: "user", path: { message: m, part: p }, contentKind: "array",
-						text: part.text, isShellTool: false, isNewestUser: true,
+						text: part.text, isShellTool: false, isNewestUser: m === lastUserIndex,
 					});
 				}
 			}
@@ -198,6 +208,10 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 	const toolNames = collectToolNames(items, "openai-responses");
 
 	const blocks: ExtractedBlock[] = [];
+	let lastUserIndex = -1;
+	for (let i = 0; i < items.length; i++) {
+		if (isRecord(items[i]) && items[i].type === "message" && items[i].role === "user") lastUserIndex = i;
+	}
 	for (let i = 0; i < items.length; i++) {
 		const item = items[i];
 		if (!isRecord(item)) continue;
@@ -216,7 +230,7 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 			if (isRecord(part) && part.type === "input_text" && typeof part.text === "string" && part.text.length > 0) {
 				blocks.push({
 					kind: "user", path: { message: i, part: p }, contentKind: "array",
-					text: part.text, isShellTool: false, isNewestUser: true,
+					text: part.text, isShellTool: false, isNewestUser: i === lastUserIndex,
 				});
 			}
 		}

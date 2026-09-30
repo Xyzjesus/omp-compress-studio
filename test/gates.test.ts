@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { quantumLock } from "../src/gates/quantum";
 import { applyRiskMask } from "../src/gates/risk";
+import { applyCaveman } from "../src/engines/caveman";
+import { parseVerdict } from "../src/judge";
 import { diffWords } from "../src/diff";
 
 describe("quantum lock", () => {
@@ -23,11 +25,40 @@ describe("quantum lock", () => {
 		expect(lock.restore(lock.text)).toBe(text);
 	});
 
-	test("idempotent on already-locked text", () => {
-		const locked = "value ⟦QUANTUMLOCK⟧ stays";
-		const lock = quantumLock(locked);
-		expect(lock.text).toBe(locked);
+	test("already-locked-looking text is re-locked harmlessly", () => {
+		const lock = quantumLock("value ⟦QUANTUMLOCK⟧ stays");
 		expect(lock.stats.fragments).toBe(0);
+		expect(lock.text).toContain("⟦QUANTUMLOCK⟧");
+		expect(lock.restore(lock.text)).toBe(lock.text);
+	});
+});
+
+describe("caveman placeholder guard", () => {
+	test("a rule that would delete a placeholder reverts the whole step", () => {
+		// "thanks" (pleasantries rule, ultra) directly precedes the URL: if the
+		// rule consumed the URL placeholder the guard must revert the step.
+		const text = "thanks https://example.com/very/long/path/that/should/survive/intact";
+		const step = applyCaveman({ text, role: "user" }, { cavemanIntensity: "ultra" });
+		expect(step.output).toContain("https://example.com/very/long/path/that/should/survive/intact");
+	});
+});
+
+describe("judge verdict parsing", () => {
+	test("explicit verdict lines win", () => {
+		expect(parseVerdict("VERDICT: SAME")).toBe("same");
+		expect(parseVerdict("verdict: same")).toBe("same");
+		expect(parseVerdict("VERDICT: MATERIALLY_DIFFERS")).toBe("materially-differs");
+		expect(parseVerdict("blabla\nVERDICT: MATERIALLY DIFFERS")).toBe("materially-differs");
+	});
+
+	test("prose negations do not flip the verdict", () => {
+		expect(parseVerdict("nothing differs between the answers")).toBe("unparseable");
+		expect(parseVerdict("The outputs do not materially differ in any way.")).toBe("unparseable");
+	});
+
+	test("final-line heuristics still recognize plain statements", () => {
+		expect(parseVerdict("After careful review, the answer materially differs from A.")).toBe("materially-differs");
+		expect(parseVerdict("both answers are the same")).toBe("same");
 	});
 });
 

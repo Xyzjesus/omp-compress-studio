@@ -94,7 +94,7 @@ const RULES: CavemanRule[] = [
 ];
 
 /** Extracts protected spans to ⟦P<i>⟧ placeholders; returns masked text + restore function. */
-function extractProtected(text: string): { masked: string; restore: (masked: string) => string } {
+function extractProtected(text: string): { masked: string; restore: (masked: string) => string; count: number } {
 	const values: string[] = [];
 	const stash = (match: string) => {
 		const placeholder = `⟦P${values.length}⟧`;
@@ -109,6 +109,7 @@ function extractProtected(text: string): { masked: string; restore: (masked: str
 	return {
 		masked,
 		restore: (m) => m.replace(/⟦P(\d+)⟧/g, (_ph, idx) => values[Number(idx)] ?? _ph),
+		count: values.length,
 	};
 }
 
@@ -139,7 +140,7 @@ export function applyCaveman(input: EngineInput, opts?: EngineApplyOptions): Ste
 		return skippedStep("caveman", text, "too-short", opts);
 	}
 
-	const { masked, restore } = extractProtected(text);
+	const { masked, restore, count: placeholderCount } = extractProtected(text);
 
 	// Code dominance is judged on prose outside fences — fenced code is
 	// placeholder-masked and irrelevant to prose rules.
@@ -174,6 +175,14 @@ export function applyCaveman(input: EngineInput, opts?: EngineApplyOptions): Ste
 
 		if (intensity === "ultra") working = cleanupArtifacts(working);
 		if (working !== masked) working = recapitalizeSentences(working);
+
+		// A rule that consumed a ⟦P<i>⟧ placeholder deleted a protected span
+		// (fence, URL, path, stack line). Restore only when every placeholder
+		// survived rule application; otherwise return the original text.
+		const surviving = (working.match(/⟦P\d+⟧/g) ?? []).length;
+		if (surviving < placeholderCount) {
+			return { output: text, techniquesUsed: [], rulesApplied: [] };
+		}
 
 		return { output: restore(working), techniquesUsed: ["caveman"], rulesApplied };
 	}, opts);

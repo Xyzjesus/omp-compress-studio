@@ -80,10 +80,16 @@ export const STRATEGY_PRESETS: Record<
 	stacked: { engines: { dedup: true, rtk: true, truncate: true, caveman: true }, cavemanIntensity: "full" },
 };
 
-/** Returns a new config with the preset's engine stack applied (preset only; flags are the runtime truth). */
+/** Returns a new config with the preset's engine stack applied (preset only; flags are the runtime truth). The "off" preset also disables live compression. */
 export function applyStrategyPreset(config: StudioConfig, strategy: Strategy): StudioConfig {
 	const preset = STRATEGY_PRESETS[strategy];
-	return { ...config, strategy, engines: { ...preset.engines }, cavemanIntensity: preset.cavemanIntensity };
+	return {
+		...config,
+		strategy,
+		engines: { ...preset.engines },
+		cavemanIntensity: preset.cavemanIntensity,
+		...(strategy === "off" ? { enabled: false } : {}),
+	};
 }
 
 export function configPath(): string {

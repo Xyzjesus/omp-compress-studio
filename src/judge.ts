@@ -29,11 +29,14 @@ export interface JudgeBatchResult {
 	error?: string;
 }
 
-/** Verdict parser: materially-differs patterns win over same patterns. */
+/** Verdict parser: the final VERDICT line wins; heuristics only on the last line so prose like "nothing differs" cannot flip the verdict. */
 export function parseVerdict(text: string): JudgeVerdict {
-	const lowered = text.toLowerCase();
-	if (/materially[_\s-]*differs|differs[_\s]+materially|\bdiffers\b/.test(lowered)) return "materially-differs";
-	if (/verdict:\s*same|\bsame\b/.test(lowered)) return "same";
+	const lowered = text.trim().toLowerCase();
+	const lastLine = lowered.split("\n").filter((line) => line.trim().length > 0).pop() ?? "";
+	const explicit = lastLine.match(/verdict:\s*(same|materially[\s_-]*differs)/);
+	if (explicit) return explicit[1]!.startsWith("m") ? "materially-differs" : "same";
+	if (/materially[\s_-]*differs/.test(lastLine)) return "materially-differs";
+	if (/\bsame\b/.test(lastLine)) return "same";
 	return "unparseable";
 }
 
@@ -112,7 +115,7 @@ export async function judgeFidelityBatch(
 			if (signal?.aborted) throw err;
 			results.push({
 				id: pair.id,
-				verdict: "unparseable",
+				verdict: null,
 				usdCost: 0,
 				error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
 			});

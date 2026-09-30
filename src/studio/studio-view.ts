@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import * as fs from "node:fs";
 import type { KeybindingsManager, Theme, TUI } from "@oh-my-pi/pi-tui";
 import type { ExtensionUiComponent } from "@oh-my-pi/pi-tui/chat/extension-types";
 import type { StudioConfig } from "../config";
@@ -44,7 +45,10 @@ export class StudioView implements ExtensionUiComponent {
 	#tabIndex = 0;
 	#views: Record<TabId, TabView>;
 
-	constructor(private readonly env: StudioEnv) {
+	#env: StudioEnv;
+
+	constructor(env: StudioEnv) {
+		this.#env = env;
 		const play = new PlayView(env, () => {});
 		const compare = new CompareView(env);
 		const live = new LiveView(env);
@@ -59,7 +63,7 @@ export class StudioView implements ExtensionUiComponent {
 	invalidate(): void {}
 
 	#syncSharedText(): void {
-		this.env.setSharedText((this.#views.play as PlayView).playText());
+		this.#env.setSharedText((this.#views.play as PlayView).playText());
 	}
 
 	dispose(): void {
@@ -69,27 +73,28 @@ export class StudioView implements ExtensionUiComponent {
 	}
 
 	handleInput(data: string): boolean {
+		fs.appendFileSync("/tmp/studio-keys.log", `StudioView data=${JSON.stringify(data)} tab=${this.#tab}\n`);
 		if (this.#disposed) return true;
 		const key = keyName(data);
 		if (key === "tab" || key === "shift+tab") {
 			const dir = key === "tab" ? 1 : TABS.length - 1;
 			this.#syncSharedText();
 			this.#tabIndex = (this.#tabIndex + dir) % TABS.length;
-			this.env.tui.requestRender();
+			this.#env.tui.requestRender();
 			return true;
 		}
 		const view = this.#views[this.#tab];
 		const handled = view.handleInput(data) === true;
 		if (!handled && key === "escape") {
-			this.env.close();
+			this.#env.close();
 			return true;
 		}
-		this.env.tui.requestRender();
+		this.#env.tui.requestRender();
 		return true;
 	}
 
 	render(width: number): readonly string[] {
-		const theme = this.env.theme;
+		const theme = this.#env.theme;
 		const lines: string[] = [];
 		const tabs = TABS.map((tab, i) =>
 			i === this.#tabIndex ? theme.fg("accent", `[ ${tab} ]`) : theme.fg("dim", `  ${tab}  `),

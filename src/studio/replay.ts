@@ -13,7 +13,11 @@ export class ReplayState {
 	speed: ReplaySpeed = 1;
 	#disposed = false;
 
-	constructor(private readonly onFrame: () => void) {}
+	#onFrame: () => void;
+
+	constructor(onFrame: () => void) {
+		this.#onFrame = onFrame;
+	}
 
 	get active(): boolean {
 		return this.frame > 0;
@@ -38,26 +42,26 @@ export class ReplayState {
 	reset(): void {
 		this.pause();
 		this.frame = 0;
-		this.onFrame();
+		this.#onFrame();
 	}
 
 	speedDown(): void {
 		const idx = SPEED_STEPS.indexOf(this.speed);
 		this.speed = SPEED_STEPS[Math.max(0, idx - 1)]!;
-		this.onFrame();
+		this.#onFrame();
 	}
 
 	speedUp(): void {
 		const idx = SPEED_STEPS.indexOf(this.speed);
 		this.speed = SPEED_STEPS[Math.min(SPEED_STEPS.length - 1, idx + 1)]!;
-		this.onFrame();
+		this.#onFrame();
 	}
 
 	#loop(maxFrames: number): Promise<void> {
 		return (async () => {
 			while (!this.#disposed && this.playing && this.frame < maxFrames) {
 				this.frame++;
-				this.onFrame();
+				this.#onFrame();
 				await Bun.sleep(BASE_TICK_MS / this.speed);
 			}
 			this.playing = false;

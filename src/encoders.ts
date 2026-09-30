@@ -71,7 +71,7 @@ function typeHint(value: unknown): ColumnType {
 }
 
 function csvCell(value: string): string {
-	return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+	return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 /**

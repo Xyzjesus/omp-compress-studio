@@ -17,6 +17,11 @@ function messagesOf(value: unknown): unknown[] {
 	throw new Error("payload has no messages array");
 }
 
+function inputItemsOf(value: unknown): unknown[] {
+	if (isRecord(value) && Array.isArray(value.input)) return value.input;
+	throw new Error("payload has no input array");
+}
+
 function field(value: unknown, name: string): unknown {
 	if (isRecord(value) && name in value) return value[name];
 	return undefined;
@@ -107,6 +112,74 @@ describe("capture", () => {
 		expect(toolBlock!.output!.length).toBeLessThan(toolBlock!.input!.length);
 		expect(toolBlock?.steps?.length ?? 0).toBeGreaterThan(0);
 		expect(toolBlock?.steps?.some((s) => !s.rejected)).toBe(true);
+	});
+
+	test("image-bearing tool_result is left untouched", async () => {
+		const payload = {
+			model: "claude-test",
+			max_tokens: 1024,
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Summarize the earlier test run and tell me what to fix first, please provide a lot of detail about it." }] },
+				{ role: "assistant", content: [{ type: "tool_use", id: "tu_2", name: "bash", input: { command: "shot" } }] },
+				{ role: "user", content: [{ type: "tool_result", tool_use_id: "tu_2", content: [
+					{ type: "text", text: "ok — running suite module.test.ts with several assertions in short order\n".repeat(100) + "ERROR: x.ts:1 — boom" },
+					{ type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+				] }] },
+				{ role: "user", content: [{ type: "text", text: "And what is 2+2?" }] },
+			],
+		};
+		const store = new RunStore();
+		const config = applyStrategyPreset({ ...DEFAULT_CONFIG, enabled: true }, "stacked");
+		const result = await handleBeforeProviderRequest(
+			{ type: "before_provider_request", payload },
+			fakeCtx(),
+			{ getConfig: () => config, store, onRun: () => {} },
+		);
+		const messages = messagesOf(result);
+		expect(messages[2]).toEqual(payload.messages[2]);
+	});
+
+	test("openai-completions payload round-trips with old user prose compressed", async () => {
+		const payload = {
+			model: "gpt-test",
+			messages: [
+				{ role: "user", content: "First turn: hi there, I want to make sure to explain the deployment process due to the fact that it is a bit fragile." },
+				{ role: "assistant", content: "Sure." },
+				{ role: "user", content: "And what is 2+2?" },
+			],
+		};
+		const store = new RunStore();
+		const config = applyStrategyPreset({ ...DEFAULT_CONFIG, enabled: true }, "stacked");
+		const ctx = fakeCtx({ id: "m", api: "openai-completions" } as unknown as Model);
+		const result = await handleBeforeProviderRequest(
+			{ type: "before_provider_request", payload },
+			ctx,
+			{ getConfig: () => config, store, onRun: () => {} },
+		);
+		const messages = messagesOf(result);
+		expect(messages[2]).toEqual(payload.messages[2]); // newest untouched
+		expect(JSON.stringify(messages[0]).length).toBeLessThan(JSON.stringify(payload.messages[0]).length);
+	});
+
+	test("openai-responses payload round-trips and compresses old user text", async () => {
+		const payload = {
+			model: "gpt-test",
+			input: [
+				{ type: "message", role: "user", content: [{ type: "input_text", text: "First turn: hi there, I want to make sure to explain the deployment process due to the fact that it is a bit fragile." }] },
+				{ type: "message", role: "user", content: [{ type: "input_text", text: "And what is 2+2?" }] },
+			],
+		};
+		const store = new RunStore();
+		const config = applyStrategyPreset({ ...DEFAULT_CONFIG, enabled: true }, "stacked");
+		const ctx = fakeCtx({ id: "m", api: "openai-responses" } as unknown as Model);
+		const result = await handleBeforeProviderRequest(
+			{ type: "before_provider_request", payload },
+			ctx,
+			{ getConfig: () => config, store, onRun: () => {} },
+		);
+		const items = inputItemsOf(result);
+		expect(items[1]).toEqual(payload.input[1]); // newest untouched
+		expect(JSON.stringify(items[0]).length).toBeLessThan(JSON.stringify(payload.input[0]).length);
 	});
 
 	test("disabled config returns undefined and records nothing", async () => {

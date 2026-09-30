@@ -45,13 +45,17 @@ function isForcePreserve(token: string): boolean {
 export function buildHeatmap(original: string, diff: WordDiff, mode: Exclude<HeatmapMode, "off">): HeatmapToken[] {
 	const tokens = tokenizeWords(original);
 
-	// Map diff segments back onto original tokens to mark kept/dropped.
+	// Walk diff segments against original tokens. `added` segments carry no
+	// original tokens — skipping them keeps later kept/dropped flags aligned.
 	const kept: boolean[] = [];
 	let segIdx = 0;
 	let offset = 0;
 	for (const token of tokens) {
-		while (segIdx < diff.segments.length && offset >= diff.segments[segIdx].text.length) {
-			offset -= diff.segments[segIdx].text.length;
+		while (
+			segIdx < diff.segments.length &&
+			(diff.segments[segIdx].type === "added" || offset >= diff.segments[segIdx].text.length)
+		) {
+			if (diff.segments[segIdx].type !== "added") offset -= diff.segments[segIdx].text.length;
 			segIdx++;
 		}
 		const segment = diff.segments[segIdx];

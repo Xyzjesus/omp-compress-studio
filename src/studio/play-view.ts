@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { Editor, getEditorTheme, type Theme, type TUI } from "@oh-my-pi/pi-tui";
 import type { ExtensionUiComponent } from "@oh-my-pi/pi-tui/chat/extension-types";
-import { extractPreservedBlocks, diffWords } from "../diff";
+import { extractPreservedBlocks, diffWords, type WordDiff, type PreservedBlock } from "../diff";
 import type { StudioConfig } from "../config";
 import { compareEncoders, type EncoderComparison } from "../encoders";
 import { ENGINE_BY_LANE, LIVE_LANES, runPipeline, type LiveLane, type PipelineResult } from "../engines/pipeline";
@@ -21,10 +21,10 @@ export interface PlayRunResult {
 	originalTokens: number;
 	perLane: Record<LiveLane, StepResult>;
 	combined: PipelineResult;
-	diff: ReturnType<typeof diffWords>;
+	diff: WordDiff;
 	heatmap: HeatmapToken[];
 	encoders: EncoderComparison;
-	preserved: ReturnType<typeof extractPreservedBlocks>;
+	preserved: PreservedBlock[];
 	durationMs: number;
 }
 
@@ -223,7 +223,6 @@ export class PlayView implements ExtensionUiComponent {
 			this.env.tui.requestRender();
 			return true;
 		}
-		const config = this.env.getConfig();
 		const gateKeys: Record<string, "fidelityGate" | "fuzzyDedup" | "riskGate" | "quantumLock"> = {
 			f: "fidelityGate",
 			d: "fuzzyDedup",
@@ -265,7 +264,6 @@ export class PlayView implements ExtensionUiComponent {
 			this.replay.speedUp();
 			return true;
 		}
-		void config;
 		return false;
 	}
 
@@ -300,6 +298,11 @@ export class PlayView implements ExtensionUiComponent {
 		const text = this.playText();
 		if (text.trim().length === 0) {
 			this.runError = "no input text";
+			this.env.tui.requestRender();
+			return;
+		}
+		if (text.length > 200_000) {
+			this.runError = `input too large (${Math.round(text.length / 1024)} kB) — the diff and heatmap would stall the TUI`;
 			this.env.tui.requestRender();
 			return;
 		}

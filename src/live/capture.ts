@@ -58,7 +58,7 @@ export interface CaptureDeps {
 
 function toolLanes(config: StudioConfig): LiveLane[] {
 	const lanes: LiveLane[] = [];
-	if (config.engines.dedup && config.gates.fuzzyDedup) lanes.push("dedup");
+	if (config.engines.dedup) lanes.push("dedup");
 	if (config.engines.rtk) lanes.push("rtk");
 	if (config.engines.truncate) lanes.push("truncate");
 	if (config.engines.caveman) lanes.push("caveman");
@@ -107,18 +107,42 @@ function compressBlock(
 		const { steps, output } = runPipeline(working, block.kind === "tool" ? "tool" : "user", lanes, {
 			model,
 			isShellTool: block.isShellTool,
+			fuzzy: config.gates.fuzzyDedup,
 			postCheck: config.gates.fidelityGate ? (step) => fidelityCheck(step).step : undefined,
 		});
 
 		let restored = lock ? lock.restore(output) : output;
 		if (riskMasked) restored = riskMasked.restore(restored);
 
+		// Placeholder round-trip guard: engines must neither drop nor duplicate
+		// gate placeholders. smartTruncate/dedup delete whole lines, and a lost
+		// ⟦Q⟧/⟦risk_⟧ means a "protected" span was silently deleted (fidelity
+		// is blind to it — its needles come from the masked text).
+		const countPlaceholders = (s: string, re: RegExp) => (s.match(re) ?? []).length;
+		const residual = /⟦(?:Q\d+|risk_[a-z_]+\d+)⟧/.test(restored);
+		const quantumRoundTrip =
+			!lock ||
+			countPlaceholders(output, /⟦Q\d+⟧/g) === lock.stats.fragments;
+		const riskRoundTrip =
+			!riskMasked ||
+			riskMasked.stats.spansProtected === 0 ||
+			(countPlaceholders(working, /⟦risk_[a-z_]+\d+⟧/g) === riskMasked.stats.spansProtected &&
+				countPlaceholders(restored, /⟦risk_[a-z_]+\d+⟧/g) === 0);
+		if (residual || !quantumRoundTrip || !riskRoundTrip) {
+			return undefined;
+		}
+
 		// Accept only a strict win on both axes.
 		if (restored.length < text.length && countText(restored, model) < countText(text, model)) {
 			return { text: restored, steps: steps.map(stepSummary), rawSteps: steps };
 		}
 		return undefined;
-	} catch {
+	} catch (err) {
+		logger.warn("compress-studio: block compression failed, sending original", {
+			error: err instanceof Error ? err.message : String(err),
+			kind: block.kind,
+			messageIndex: block.path.message,
+		});
 		return undefined;
 	}
 }
@@ -134,7 +158,9 @@ export async function handleBeforeProviderRequest(
 	deps: CaptureDeps,
 ): Promise<unknown> {
 	const config = deps.getConfig();
-	if (!config.enabled || config.strategy === "off") return undefined;
+	// Runtime truth is config.engines (+ gates); `strategy` is a preset label
+	// only. The "off" preset writes all engines off, so this no-ops naturally.
+	if (!config.enabled) return undefined;
 	const payload = event.payload;
 	if (payload === null || typeof payload !== "object") return undefined;
 	const api = ctx.model?.api;
@@ -208,6 +234,7 @@ export async function handleBeforeProviderRequest(
 				})),
 			});
 		}
+		if (result.text === block.text) continue;
 		nextPayload = extraction.writeBack(nextPayload, block, result.text);
 		changedAny = true;
 		allSteps.push(...result.steps);
@@ -216,12 +243,11 @@ export async function handleBeforeProviderRequest(
 	const durationMs = performance.now() - started;
 	if (!changedAny) {
 		flushDebug(false, "no-block-changed");
-		deps.store.append({
+		deps.onRun(deps.store.append({
 			ts: Date.now(), model: model?.id, api, strategy: config.strategy,
 			originalTokens: tokensBefore, compressedTokens: tokensBefore, savingsPercent: 0,
 			steps: allSteps, durationMs, accepted: false, fallbackReason: "no-block-changed",
-		});
-		deps.onRun(deps.store.recent()[deps.store.recent().length - 1]!);
+		}));
 		return undefined;
 	}
 
@@ -229,12 +255,11 @@ export async function handleBeforeProviderRequest(
 	const tokensAfter = countText(serialized, model);
 	if (serialized.length >= JSON.stringify(payload).length || tokensAfter >= tokensBefore) {
 		flushDebug(false, "payload-not-smaller");
-		deps.store.append({
+		deps.onRun(deps.store.append({
 			ts: Date.now(), model: model?.id, api, strategy: config.strategy,
 			originalTokens: tokensBefore, compressedTokens: tokensBefore, savingsPercent: 0,
 			steps: allSteps, durationMs, accepted: false, fallbackReason: "payload-not-smaller",
-		});
-		deps.onRun(deps.store.recent()[deps.store.recent().length - 1]!);
+		}));
 		return undefined;
 	}
 
@@ -252,8 +277,7 @@ export async function handleBeforeProviderRequest(
 		durationMs,
 		accepted: true,
 	};
-	deps.store.append(record);
-	deps.onRun(record);
+	deps.onRun(deps.store.append(record));
 	flushDebug(true);
 	return nextPayload;
 }
