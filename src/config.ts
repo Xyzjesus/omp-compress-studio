@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 
-export type Strategy = "off" | "lite" | "standard" | "aggressive" | "ultra" | "rtk" | "stacked";
+export type Strategy = "off" | "lite" | "standard" | "aggressive" | "ultra" | "rtk" | "stacked" | "omniroute";
 export type CavemanIntensity = "lite" | "full" | "ultra";
 
 export interface EngineToggles {
@@ -10,6 +10,8 @@ export interface EngineToggles {
 	rtk: boolean;
 	truncate: boolean;
 	caveman: boolean;
+	/** Lossless content-addressed dedup of repeated blocks (OmniRoute "Standard Savings" stage 1). */
+	sessionDedup: boolean;
 }
 
 export interface GateToggles {
@@ -43,7 +45,7 @@ export interface StudioConfig {
 export const DEFAULT_CONFIG: StudioConfig = {
 	enabled: false,
 	strategy: "stacked",
-	engines: { dedup: true, rtk: true, truncate: true, caveman: true },
+	engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true },
 	cavemanIntensity: "full",
 	preserveSystemPrompt: true,
 	gates: { fidelityGate: true, riskGate: true, quantumLock: true, fuzzyDedup: true },
@@ -61,6 +63,7 @@ export const STRATEGIES: readonly Strategy[] = [
 	"ultra",
 	"rtk",
 	"stacked",
+	"omniroute",
 ];
 
 /**
@@ -71,13 +74,15 @@ export const STRATEGY_PRESETS: Record<
 	Strategy,
 	{ engines: EngineToggles; cavemanIntensity: CavemanIntensity }
 > = {
-	off: { engines: { dedup: false, rtk: false, truncate: false, caveman: false }, cavemanIntensity: "full" },
-	lite: { engines: { dedup: false, rtk: false, truncate: false, caveman: true }, cavemanIntensity: "lite" },
-	standard: { engines: { dedup: false, rtk: false, truncate: false, caveman: true }, cavemanIntensity: "full" },
-	aggressive: { engines: { dedup: false, rtk: true, truncate: false, caveman: true }, cavemanIntensity: "full" },
-	ultra: { engines: { dedup: true, rtk: true, truncate: true, caveman: true }, cavemanIntensity: "ultra" },
-	rtk: { engines: { dedup: false, rtk: true, truncate: false, caveman: false }, cavemanIntensity: "full" },
-	stacked: { engines: { dedup: true, rtk: true, truncate: true, caveman: true }, cavemanIntensity: "full" },
+	off: { engines: { dedup: false, rtk: false, truncate: false, caveman: false, sessionDedup: false }, cavemanIntensity: "full" },
+	lite: { engines: { dedup: false, rtk: false, truncate: false, caveman: true, sessionDedup: false }, cavemanIntensity: "lite" },
+	standard: { engines: { dedup: false, rtk: false, truncate: false, caveman: true, sessionDedup: false }, cavemanIntensity: "full" },
+	aggressive: { engines: { dedup: false, rtk: true, truncate: false, caveman: true, sessionDedup: false }, cavemanIntensity: "full" },
+	ultra: { engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true }, cavemanIntensity: "ultra" },
+	rtk: { engines: { dedup: false, rtk: true, truncate: false, caveman: false, sessionDedup: false }, cavemanIntensity: "full" },
+	stacked: { engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true }, cavemanIntensity: "full" },
+	/** OmniRoute "Standard Savings" parity: session-dedup + lite tool truncation (their default combo). */
+	omniroute: { engines: { dedup: false, rtk: false, truncate: true, caveman: false, sessionDedup: true }, cavemanIntensity: "lite" },
 };
 
 /** Returns a new config with the preset's engine stack applied (preset only; flags are the runtime truth). The "off" preset also disables live compression. */
@@ -142,6 +147,7 @@ export function sanitizeConfig(raw: unknown): StudioConfig {
 			rtk: bool(engines.rtk, DEFAULT_CONFIG.engines.rtk),
 			truncate: bool(engines.truncate, DEFAULT_CONFIG.engines.truncate),
 			caveman: bool(engines.caveman, DEFAULT_CONFIG.engines.caveman),
+			sessionDedup: bool(engines.sessionDedup, DEFAULT_CONFIG.engines.sessionDedup),
 		},
 		cavemanIntensity: isCavemanIntensity(intensity) ? intensity : DEFAULT_CONFIG.cavemanIntensity,
 		preserveSystemPrompt: bool(src.preserveSystemPrompt, DEFAULT_CONFIG.preserveSystemPrompt),

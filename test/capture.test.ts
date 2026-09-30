@@ -47,6 +47,7 @@ function syntheticPayload(): Record<string, unknown> {
 			{ role: "user", content: [{ type: "text", text: "Summarize the earlier test run and tell me what to fix first, please provide a lot of detail about it." }] },
 			{ role: "assistant", content: [{ type: "tool_use", id: "tu_1", name: "bash", input: { command: "bun test" } }] },
 			{ role: "user", content: [{ type: "tool_result", tool_use_id: "tu_1", content: bigToolOutput() }] },
+			{ role: "assistant", content: [{ type: "text", text: "Acknowledged the test results." }] },
 			{ role: "user", content: [{ type: "text", text: "And what is 2+2?" }] },
 		],
 	};
@@ -71,9 +72,9 @@ describe("capture", () => {
 		// system untouched
 		expect(field(result, "system")).toEqual(field(payload, "system"));
 		// newest user message untouched byte-for-byte
-		expect(messages[3]).toEqual(payloadMessages[3]);
-		// tool_result message actually shrank
-		expect(JSON.stringify(messages[2]).length).toBeLessThan(JSON.stringify(payloadMessages[2]).length);
+		expect(messages[4]).toEqual(payloadMessages[4]);
+		// old-prose user block (previous turn) compresses via caveman
+		expect(JSON.stringify(messages[0]).length).toBeLessThan(JSON.stringify(payloadMessages[0]).length);
 
 		// run recorded with a non-empty breakdown
 		expect(store.recent()).toHaveLength(1);
@@ -125,6 +126,7 @@ describe("capture", () => {
 					{ type: "text", text: "ok — running suite module.test.ts with several assertions in short order\n".repeat(100) + "ERROR: x.ts:1 — boom" },
 					{ type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
 				] }] },
+				{ role: "assistant", content: [{ type: "text", text: "Acknowledged the test results." }] },
 				{ role: "user", content: [{ type: "text", text: "And what is 2+2?" }] },
 			],
 		};
@@ -136,7 +138,7 @@ describe("capture", () => {
 			{ getConfig: () => config, store, onRun: () => {} },
 		);
 		const messages = messagesOf(result);
-		expect(messages[2]).toEqual(payload.messages[2]);
+		expect(messages[3]).toEqual(payload.messages[3]);
 	});
 
 	test("openai-completions payload round-trips with old user prose compressed", async () => {
@@ -157,7 +159,7 @@ describe("capture", () => {
 			{ getConfig: () => config, store, onRun: () => {} },
 		);
 		const messages = messagesOf(result);
-		expect(messages[2]).toEqual(payload.messages[2]); // newest untouched
+		expect(messages[3]).toEqual(payload.messages[3]); // newest untouched
 		expect(JSON.stringify(messages[0]).length).toBeLessThan(JSON.stringify(payload.messages[0]).length);
 	});
 
@@ -166,6 +168,7 @@ describe("capture", () => {
 			model: "gpt-test",
 			input: [
 				{ type: "message", role: "user", content: [{ type: "input_text", text: "First turn: hi there, I want to make sure to explain the deployment process due to the fact that it is a bit fragile." }] },
+				{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Understood." }] },
 				{ type: "message", role: "user", content: [{ type: "input_text", text: "And what is 2+2?" }] },
 			],
 		};
@@ -211,13 +214,16 @@ describe("capture", () => {
 describe("config", () => {
 	test("presets write per-engine flags (runtime truth)", () => {
 		const stacked = applyStrategyPreset(sanitizeConfig(undefined), "stacked");
-		expect(stacked.engines).toEqual({ dedup: true, rtk: true, truncate: true, caveman: true });
+		expect(stacked.engines).toEqual({ dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true });
 		expect(stacked.cavemanIntensity).toBe("full");
 
 		const rtk = applyStrategyPreset(stacked, "rtk");
-		expect(rtk.engines).toEqual({ dedup: false, rtk: true, truncate: false, caveman: false });
+		expect(rtk.engines).toEqual({ dedup: false, rtk: true, truncate: false, caveman: false, sessionDedup: false });
 
-		const ultra = applyStrategyPreset(rtk, "ultra");
+		const omniroute = applyStrategyPreset(rtk, "omniroute");
+		expect(omniroute.engines).toEqual({ dedup: false, rtk: false, truncate: true, caveman: false, sessionDedup: true });
+
+		const ultra = applyStrategyPreset(omniroute, "ultra");
 		expect(ultra.cavemanIntensity).toBe("ultra");
 	});
 

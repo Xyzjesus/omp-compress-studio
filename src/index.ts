@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent";
-import * as fs from "node:fs";
+import type { OverlayHandle } from "@oh-my-pi/pi-tui";
 import { logger } from "@oh-my-pi/pi-utils";
 import { applyStrategyPreset, loadConfig, saveConfig, type Strategy, type StudioConfig } from "./config";
 import { handleBeforeProviderRequest } from "./live/capture";
@@ -22,12 +22,12 @@ async function openStudio(ctx: ExtensionCommandContext, state: { config: StudioC
 	// overlays, which used to leave the studio key-dead). Context dialogs
 	// (select/input opened via runDialog) pass through untouched.
 	const removeInputRouter = ctx.ui.onTerminalInput((data) => {
-		fs.appendFileSync("/tmp/studio-keys.log", `enter closed=${closed} comp=${!!component} dd=${dialogDepth} data=${JSON.stringify(data)}\n`);
 		if (closed || !component || dialogDepth > 0) return undefined;
-		const __handled = component.handleInput(data);
-		fs.appendFileSync("/tmp/studio-keys.log", `  -> handled=${__handled}\n`);
+		component.handleInput(data);
 		return { consume: true };
 	});
+
+	let overlayHandle: OverlayHandle | undefined;
 
 	await ctx.ui.custom<undefined>((tui, theme, keybindings, done) => {
 		const close = () => {
@@ -65,10 +65,21 @@ async function openStudio(ctx: ExtensionCommandContext, state: { config: StudioC
 				else widget.remove(ctx);
 			},
 			notify: (message, type) => ctx.ui.notify(message, type),
+			pickModel: (options, initialIndex) => {
+				if (!component || closed) return Promise.resolve(undefined);
+				return component.openModelPicker(options, initialIndex);
+			},
 			runDialog: (open) => {
 				dialogDepth++;
+				// Host dialogs (select/input) render in the editor slot, underneath
+				// this fullscreen overlay — hide the studio so the dialog is visible
+				// and can take focus/keys; restore when the last dialog closes.
+				overlayHandle?.setHidden(true);
+				tui.requestRender();
 				return open().finally(() => {
 					dialogDepth--;
+					if (dialogDepth === 0) overlayHandle?.setHidden(false);
+					tui.requestRender();
 				});
 			},
 			close,
@@ -78,6 +89,9 @@ async function openStudio(ctx: ExtensionCommandContext, state: { config: StudioC
 	}, {
 		overlay: true,
 		overlayOptions: { anchor: "bottom-center", width: "100%", maxHeight: "100%", margin: 0 },
+		onHandle: (handle) => {
+			overlayHandle = handle;
+		},
 	});
 	closed = true;
 	removeInputRouter();

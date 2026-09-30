@@ -47,7 +47,7 @@ Live compression is **off by default**.
 
 ### Strategies are presets
 
-The runtime truth is the per-engine switches (`dedup`, `rtk`, `truncate`, `caveman` + intensity). A strategy preset is a one-shot writer for those switches:
+The runtime truth is the per-engine switches (`dedup`, `rtk`, `truncate`, `caveman`, `sessionDedup` + intensity). A strategy preset is a one-shot writer for those switches:
 
 | Preset | Engines written |
 |---|---|
@@ -55,11 +55,12 @@ The runtime truth is the per-engine switches (`dedup`, `rtk`, `truncate`, `cavem
 | `lite` | caveman@lite |
 | `standard` | caveman@full |
 | `aggressive` | rtk, caveman@full |
-| `ultra` | dedup, rtk, truncate, caveman@ultra |
+| `ultra` | dedup, rtk, truncate, caveman@ultra, sessionDedup |
 | `rtk` | rtk |
-| `stacked` (default) | dedup, rtk, truncate, caveman@full |
+| `stacked` (default) | dedup, rtk, truncate, caveman@full, sessionDedup |
+| `omniroute` | sessionDedup, truncate (OmniRoute "Standard Savings" parity: lossless dedup + head truncation of oversized tool results, `maxToolChars` = 2000) |
 
-The live pipeline applies the enabled engines in stack order (dedup → rtk → truncate → caveman): tool outputs get the full stack, user prose gets caveman only, and the **newest user message and the system prompt are never touched**.
+The live pipeline applies the enabled engines in stack order (dedup → rtk → truncate → caveman). Before the per-block lanes, `sessionDedup` runs a payload-level pass: repeated tool/user blocks (≥80 chars, ≥3 lines) keep only their first verbatim copy, later occurrences collapse to `[dedup:ref sha=…]` markers (lossless). Lite tool truncation keeps the head plus a capped severity digest (ERROR/WARN/FATAL lines) and a 500-char tail from the dropped region, and exempts the current turn (blocks after the last assistant message). The **newest user message and the system prompt are never touched**.
 
 ### Safety gates
 

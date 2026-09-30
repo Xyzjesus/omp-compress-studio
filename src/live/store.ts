@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import { runsPath } from "../config";
+import { rotateLogIfHuge } from "./log-rotation";
 import type { Strategy } from "../config";
 
 export interface RunStepSummary {
@@ -34,10 +35,14 @@ export interface SessionTotals {
 }
 
 const RING_CAPACITY = 50;
+const RUNS_LOG_MAX_BYTES = 5 * 1024 * 1024;
+const RUNS_LOG_KEEP_LINES = 2000;
+const ROTATE_EVERY_N_APPENDS = 50;
 
 /** In-memory ring of recent runs, mirrored to an append-only JSONL on disk. */
 export class RunStore {
 	#ring: RunRecord[] = [];
+	#appends = 0;
 
 	#log?: { warn(message: string, fields?: unknown): void };
 
@@ -52,6 +57,11 @@ export class RunStore {
 		fs.appendFile(runsPath(), line, "utf8").catch((err: unknown) => {
 			this.#log?.warn("compress-studio: failed to append run record", { error: String(err) });
 		});
+		if (++this.#appends % ROTATE_EVERY_N_APPENDS === 0) {
+			rotateLogIfHuge(runsPath(), RUNS_LOG_MAX_BYTES, RUNS_LOG_KEEP_LINES).catch((err: unknown) => {
+				this.#log?.warn("compress-studio: runs.jsonl rotation failed", { error: String(err) });
+			});
+		}
 		return record;
 	}
 
