@@ -15,7 +15,9 @@ import { quantumLock } from "../gates/quantum";
 import { logger } from "@oh-my-pi/pi-utils";
 import type { ExtractedBlock } from "./formats";
 import { extractBlocks } from "./formats";
+import { rotateLogIfHuge } from "./log-rotation";
 import type { RunRecord, RunStore, RunStepSummary } from "./store";
+import { dedupSessionBlocks } from "../engines/sessionDedup";
 
 export interface DebugBlockEntry {
 	kind: "tool" | "user";
@@ -40,10 +42,19 @@ export interface DebugRunEntry {
 	blocks: DebugBlockEntry[];
 }
 
+let debugAppends = 0;
+const DEBUG_LOG_MAX_BYTES = 25 * 1024 * 1024;
+const DEBUG_LOG_KEEP_LINES = 150;
+
 function appendDebugEntry(entry: DebugRunEntry): void {
 	fs.appendFile(debugPath(), `${JSON.stringify(entry)}\n`, "utf8").catch((err: unknown) => {
 		logger.warn("compress-studio: failed to append debug entry", { error: String(err) });
 	});
+	if (++debugAppends % 20 === 0) {
+		rotateLogIfHuge(debugPath(), DEBUG_LOG_MAX_BYTES, DEBUG_LOG_KEEP_LINES).catch((err: unknown) => {
+			logger.warn("compress-studio: debug.jsonl rotation failed", { error: String(err) });
+		});
+	}
 }
 
 export interface CaptureDeps {
@@ -200,10 +211,46 @@ export async function handleBeforeProviderRequest(
 	let changedAny = false;
 	const allSteps: RunStepSummary[] = [];
 
+	// Stage 0 (payload-level): session-dedup — first occurrence of a repeated
+	// block stays verbatim, later occurrences collapse to reference markers.
+	if (config.engines.sessionDedup) {
+		const deduped = dedupSessionBlocks(
+			extraction.blocks.map((b) => ({ text: b.text, isNewestUser: b.isNewestUser, isCurrentTurn: b.isCurrentTurn })),
+		);
+		for (let i = 0; i < extraction.blocks.length; i++) {
+			const marker = deduped[i];
+			const block = extraction.blocks[i]!;
+			if (marker === null) continue;
+			nextPayload = extraction.writeBack(nextPayload, block, marker);
+			changedAny = true;
+			const saved = Math.max(0, countText(block.text, model) - countText(marker, model));
+			allSteps.push({
+				engine: "session-dedup",
+				savingsPercent: countText(block.text, model) > 0 ? Math.round((saved / countText(block.text, model)) * 1000) / 10 : 0,
+				rejected: false,
+				techniquesUsed: ["dedup-ref-marker"],
+			});
+			if (debugEnabled) {
+				debugBlocks.push({
+					kind: block.kind, messageIndex: block.path.message, isShellTool: block.isShellTool,
+					isNewestUser: false, input: block.text, output: marker,
+					steps: [{ engine: "session-dedup", input: block.text, output: marker, originalTokens: countText(block.text, model), compressedTokens: countText(marker, model), rejected: false, techniquesUsed: ["dedup-ref-marker"], rulesApplied: [], durationMs: 0 }],
+				});
+			}
+			extraction.blocks[i]!.text = marker; // downstream lanes see the marker, not the full text
+		}
+	}
+
 	for (const block of extraction.blocks) {
 		// The newest user message is never compressed (safety contract).
 		if (block.isNewestUser) {
 			if (debugEnabled) debugBlocks.push({ kind: block.kind, messageIndex: block.path.message, isShellTool: block.isShellTool, isNewestUser: true, skipped: "newest-user" });
+			continue;
+		}
+		// The current-turn tool result is what the model is answering from
+		// right now — verbatim, same guarantee the lite stage gave it.
+		if (block.isCurrentTurn) {
+			if (debugEnabled) debugBlocks.push({ kind: block.kind, messageIndex: block.path.message, isShellTool: block.isShellTool, isNewestUser: false, skipped: "current-turn" });
 			continue;
 		}
 		const lanes = block.kind === "tool" ? lanesTool : lanesUser;

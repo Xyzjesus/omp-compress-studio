@@ -16,6 +16,8 @@ export interface ExtractedBlock {
 	text: string;
 	isShellTool: boolean;
 	isNewestUser: boolean;
+	/** Message lies after the last assistant message (OmniRoute's protected "current turn"). */
+	isCurrentTurn: boolean;
 }
 
 export interface Extraction {
@@ -68,8 +70,11 @@ function extractAnthropic(payload: Record<string, unknown>): Extraction | null {
 	const messages = payload.messages;
 	const toolNames = collectToolNames(messages, "anthropic");
 	let lastUserIndex = -1;
+	let lastAssistantIndex = -1;
 	for (let i = 0; i < messages.length; i++) {
-		if (isRecord(messages[i]) && messages[i].role === "user") lastUserIndex = i;
+		const role = isRecord(messages[i]) ? messages[i].role : undefined;
+		if (role === "user") lastUserIndex = i;
+		if (role === "assistant") lastAssistantIndex = i;
 	}
 
 	const blocks: ExtractedBlock[] = [];
@@ -77,12 +82,13 @@ function extractAnthropic(payload: Record<string, unknown>): Extraction | null {
 		const message = messages[m];
 		if (!isRecord(message) || (message.role !== "user" && message.role !== "assistant")) continue;
 		const isNewestUser = m === lastUserIndex;
+		const isCurrentTurn = m > lastAssistantIndex;
 
 		if (typeof message.content === "string") {
 			if (message.role === "user" && message.content.length > 0) {
 				blocks.push({
 					kind: "user", path: { message: m, part: 0 }, contentKind: "string",
-					text: message.content, isShellTool: false, isNewestUser,
+					text: message.content, isShellTool: false, isNewestUser, isCurrentTurn,
 				});
 			}
 			continue;
@@ -104,12 +110,12 @@ function extractAnthropic(payload: Record<string, unknown>): Extraction | null {
 				const toolUseId = typeof part.tool_use_id === "string" ? part.tool_use_id : undefined;
 				blocks.push({
 					kind: "tool", path: { message: m, part: p }, contentKind: Array.isArray(part.content) ? "array" : "string",
-					text, isShellTool: isShellToolName(toolUseId ? toolNames.get(toolUseId) : undefined), isNewestUser,
+					text, isShellTool: isShellToolName(toolUseId ? toolNames.get(toolUseId) : undefined), isNewestUser, isCurrentTurn,
 				});
 			} else if (part.type === "text" && typeof part.text === "string" && message.role === "user" && part.text.length > 0) {
 				blocks.push({
 					kind: "user", path: { message: m, part: p }, contentKind: "array",
-					text: part.text, isShellTool: false, isNewestUser,
+					text: part.text, isShellTool: false, isNewestUser, isCurrentTurn,
 				});
 			}
 		}
@@ -145,8 +151,11 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 	const messages = payload.messages;
 	const toolNames = collectToolNames(messages, "openai-completions");
 	let lastUserIndex = -1;
+	let lastAssistantIndex = -1;
 	for (let i = 0; i < messages.length; i++) {
-		if (isRecord(messages[i]) && messages[i].role === "user") lastUserIndex = i;
+		const role = isRecord(messages[i]) ? messages[i].role : undefined;
+		if (role === "user") lastUserIndex = i;
+		if (role === "assistant") lastAssistantIndex = i;
 	}
 
 	const blocks: ExtractedBlock[] = [];
@@ -159,16 +168,17 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 			blocks.push({
 				kind: "tool", path: { message: m, part: 0 }, contentKind: "string",
 				text: message.content, isShellTool: isShellToolName(toolCallId ? toolNames.get(toolCallId) : undefined),
-				isNewestUser: false,
+				isNewestUser: false, isCurrentTurn: m > lastAssistantIndex,
 			});
 			continue;
 		}
 		if (message.role !== "user") continue;
 		const isNewestUser = m === lastUserIndex;
+		const isCurrentTurn = m > lastAssistantIndex;
 		if (typeof message.content === "string" && message.content.length > 0) {
 			blocks.push({
 				kind: "user", path: { message: m, part: 0 }, contentKind: "string",
-				text: message.content, isShellTool: false, isNewestUser,
+				text: message.content, isShellTool: false, isNewestUser, isCurrentTurn,
 			});
 		} else if (Array.isArray(message.content)) {
 			for (let p = 0; p < message.content.length; p++) {
@@ -176,7 +186,7 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 				if (isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.length > 0) {
 					blocks.push({
 						kind: "user", path: { message: m, part: p }, contentKind: "array",
-						text: part.text, isShellTool: false, isNewestUser: m === lastUserIndex,
+						text: part.text, isShellTool: false, isNewestUser, isCurrentTurn,
 					});
 				}
 			}
@@ -209,8 +219,10 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 
 	const blocks: ExtractedBlock[] = [];
 	let lastUserIndex = -1;
+	let lastAssistantIndex = -1;
 	for (let i = 0; i < items.length; i++) {
 		if (isRecord(items[i]) && items[i].type === "message" && items[i].role === "user") lastUserIndex = i;
+		if (isRecord(items[i]) && items[i].type === "message" && items[i].role === "assistant") lastAssistantIndex = i;
 	}
 	for (let i = 0; i < items.length; i++) {
 		const item = items[i];
@@ -220,7 +232,7 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 			blocks.push({
 				kind: "tool", path: { message: i, part: 0 }, contentKind: "string",
 				text: item.output, isShellTool: isShellToolName(callId ? toolNames.get(callId) : undefined),
-				isNewestUser: false,
+				isNewestUser: false, isCurrentTurn: i > lastAssistantIndex,
 			});
 			continue;
 		}
@@ -230,7 +242,7 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 			if (isRecord(part) && part.type === "input_text" && typeof part.text === "string" && part.text.length > 0) {
 				blocks.push({
 					kind: "user", path: { message: i, part: p }, contentKind: "array",
-					text: part.text, isShellTool: false, isNewestUser: i === lastUserIndex,
+					text: part.text, isShellTool: false, isNewestUser: i === lastUserIndex, isCurrentTurn: i > lastAssistantIndex,
 				});
 			}
 		}

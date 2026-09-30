@@ -15,7 +15,7 @@ export interface CompareEnv {
 	theme: Theme;
 	getConfig(): StudioConfig;
 	updateConfig(producer: (config: StudioConfig) => StudioConfig): Promise<void>;
-	runDialog<T>(open: () => Promise<T>): Promise<T>;
+	pickModel(options: readonly string[], initialIndex?: number): Promise<string | undefined>;
 	getSharedText(): string;
 }
 
@@ -114,7 +114,7 @@ export class CompareView implements ExtensionUiComponent {
 	async promptJudgeModel(): Promise<void> {
 		const models = this.#env.ctx.models.list();
 		const options = ["(session model)", ...models.map((model) => `${model.provider}/${model.id}`)];
-		const selected = await this.#env.runDialog(() => this.#env.ctx.ui.select("Judge model", options));
+		const selected = await this.#env.pickModel(options);
 		if (selected === undefined) return;
 		const spec = selected === "(session model)" ? "" : selected;
 		await this.#env.updateConfig((c) => ({ ...c, judgeModel: spec }));

@@ -11,6 +11,7 @@ export interface SettingsEnv {
 	theme: Theme;
 	getConfig(): StudioConfig;
 	updateConfig(producer: (config: StudioConfig) => StudioConfig): Promise<void>;
+	pickModel(options: readonly string[], initialIndex?: number): Promise<string | undefined>;
 	runDialog<T>(open: () => Promise<T>): Promise<T>;
 	notify(message: string, type?: "info" | "warning" | "error"): void;
 }
@@ -56,7 +57,7 @@ export class SettingsView implements ExtensionUiComponent {
 				},
 				cycle: (dir) => this.applyStrategy(strategyNeighbor(env.getConfig().strategy, dir)),
 			},
-			...(["dedup", "rtk", "truncate", "caveman"] as const).map((engine) => ({
+			...(["dedup", "rtk", "truncate", "caveman", "sessionDedup"] as const).map((engine) => ({
 				label: `engine ${engine}`,
 				value: () => (env.getConfig().engines[engine] ? "on" : "off"),
 				toggle: () => this.setConfig((c) => ({ ...c, engines: { ...c.engines, [engine]: !c.engines[engine] } })),
@@ -149,7 +150,7 @@ export class SettingsView implements ExtensionUiComponent {
 	private async promptJudgeModel(): Promise<void> {
 		const models = this.#env.ctx.models.list();
 		const options = ["(session model)", ...models.map((model) => `${model.provider}/${model.id}`)];
-		const selected = await this.#env.runDialog(() => this.#env.ctx.ui.select("Judge model", options));
+		const selected = await this.#env.pickModel(options);
 		if (selected === undefined) return;
 		const spec = selected === "(session model)" ? "" : selected;
 		await this.setConfig((c) => ({ ...c, judgeModel: spec }));
