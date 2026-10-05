@@ -111,7 +111,7 @@ export default async function compressStudio(pi: ExtensionAPI): Promise<void> {
 			if (arg === "on" || arg === "off") {
 				const enabled = arg === "on";
 				if (state.config.enabled !== enabled) {
-					const strategy: Strategy = enabled && state.config.strategy === "off" ? "stacked" : state.config.strategy;
+					const strategy: Strategy = enabled && state.config.strategy === "off" ? "interactive" : state.config.strategy;
 					state.config = strategy === state.config.strategy
 						? { ...state.config, enabled }
 						: applyStrategyPreset({ ...state.config, enabled }, strategy);
@@ -151,6 +151,24 @@ export default async function compressStudio(pi: ExtensionAPI): Promise<void> {
 			onRun: () => widget.notifyRun(),
 		}),
 	);
+
+	// Cache telemetry: finalized assistant messages carry the provider usage
+	// (input/output/cacheRead/cacheWrite). This is what makes compression's
+	// cache-invalidation cost visible next to its token savings.
+	pi.on("message_end", (event) => {
+		const message = event.message;
+		if (message?.role === "assistant" && "usage" in message) {
+			const usage = message.usage;
+			if (usage && typeof usage === "object") {
+				store.recordUsage({
+					input: typeof usage.input === "number" ? usage.input : 0,
+					output: typeof usage.output === "number" ? usage.output : 0,
+					cacheRead: typeof usage.cacheRead === "number" ? usage.cacheRead : 0,
+					cacheWrite: typeof usage.cacheWrite === "number" ? usage.cacheWrite : 0,
+				});
+			}
+		}
+	});
 
 	// Config may already have enabled=true from a previous session — the widget
 	// (and live compression) must come up with the session, not after /on.

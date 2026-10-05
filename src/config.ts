@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 
-export type Strategy = "off" | "lite" | "standard" | "aggressive" | "ultra" | "rtk" | "stacked" | "omniroute";
+export type Strategy = "off" | "interactive" | "lite" | "standard" | "aggressive" | "ultra" | "rtk" | "stacked" | "omniroute";
 export type CavemanIntensity = "lite" | "full" | "ultra";
 
 export interface EngineToggles {
@@ -12,6 +12,8 @@ export interface EngineToggles {
 	caveman: boolean;
 	/** Lossless content-addressed dedup of repeated blocks (OmniRoute "Standard Savings" stage 1). */
 	sessionDedup: boolean;
+	/** Anthropic-style clearing: oldest tool results collapse to a placeholder past the trigger. */
+	clear: boolean;
 }
 
 export interface GateToggles {
@@ -40,12 +42,16 @@ export interface StudioConfig {
 	costCapUsd: number;
 	/** Append full before/after texts of every live run to debug.jsonl. */
 	debug: boolean;
+	/** Payload token budget that arms the clear stage (Anthropic `trigger` analogue). */
+	clearTriggerTokens: number;
+	/** How many recent non-current tool results stay verbatim (Anthropic `keep` analogue). */
+	clearKeep: number;
 }
 
 export const DEFAULT_CONFIG: StudioConfig = {
 	enabled: false,
-	strategy: "stacked",
-	engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true },
+	strategy: "interactive",
+	engines: { dedup: false, rtk: false, truncate: true, caveman: false, sessionDedup: true, clear: false },
 	cavemanIntensity: "full",
 	preserveSystemPrompt: true,
 	gates: { fidelityGate: true, riskGate: true, quantumLock: true, fuzzyDedup: true },
@@ -53,10 +59,13 @@ export const DEFAULT_CONFIG: StudioConfig = {
 	judgeModel: "",
 	costCapUsd: 0.1,
 	debug: false,
+	clearTriggerTokens: 100_000,
+	clearKeep: 3,
 };
 
 export const STRATEGIES: readonly Strategy[] = [
 	"off",
+	"interactive",
 	"lite",
 	"standard",
 	"aggressive",
@@ -74,15 +83,17 @@ export const STRATEGY_PRESETS: Record<
 	Strategy,
 	{ engines: EngineToggles; cavemanIntensity: CavemanIntensity }
 > = {
-	off: { engines: { dedup: false, rtk: false, truncate: false, caveman: false, sessionDedup: false }, cavemanIntensity: "full" },
-	lite: { engines: { dedup: false, rtk: false, truncate: false, caveman: true, sessionDedup: false }, cavemanIntensity: "lite" },
-	standard: { engines: { dedup: false, rtk: false, truncate: false, caveman: true, sessionDedup: false }, cavemanIntensity: "full" },
-	aggressive: { engines: { dedup: false, rtk: true, truncate: false, caveman: true, sessionDedup: false }, cavemanIntensity: "full" },
-	ultra: { engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true }, cavemanIntensity: "ultra" },
-	rtk: { engines: { dedup: false, rtk: true, truncate: false, caveman: false, sessionDedup: false }, cavemanIntensity: "full" },
-	stacked: { engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true }, cavemanIntensity: "full" },
-	/** OmniRoute "Standard Savings" parity: session-dedup + lite tool truncation (their default combo). */
-	omniroute: { engines: { dedup: false, rtk: false, truncate: true, caveman: false, sessionDedup: true }, cavemanIntensity: "lite" },
+	/** Warm interactive sessions: lossless + deterministic stages only — every rewrite must amortize its prompt-cache invalidation (research note §2.2). */
+	interactive: { engines: { dedup: false, rtk: false, truncate: true, caveman: false, sessionDedup: true, clear: false }, cavemanIntensity: "full" },
+	off: { engines: { dedup: false, rtk: false, truncate: false, caveman: false, sessionDedup: false, clear: false }, cavemanIntensity: "full" },
+	lite: { engines: { dedup: false, rtk: false, truncate: false, caveman: true, sessionDedup: false, clear: false }, cavemanIntensity: "lite" },
+	standard: { engines: { dedup: false, rtk: false, truncate: false, caveman: true, sessionDedup: false, clear: false }, cavemanIntensity: "full" },
+	aggressive: { engines: { dedup: false, rtk: true, truncate: false, caveman: true, sessionDedup: false, clear: false }, cavemanIntensity: "full" },
+	ultra: { engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true, clear: true }, cavemanIntensity: "ultra" },
+	rtk: { engines: { dedup: false, rtk: true, truncate: false, caveman: false, sessionDedup: false, clear: false }, cavemanIntensity: "full" },
+	stacked: { engines: { dedup: true, rtk: true, truncate: true, caveman: true, sessionDedup: true, clear: false }, cavemanIntensity: "full" },
+	/** OmniRoute "Standard Savings" parity: session-dedup + semantics-first truncation (repeats/filler only). */
+	omniroute: { engines: { dedup: false, rtk: false, truncate: true, caveman: false, sessionDedup: true, clear: false }, cavemanIntensity: "lite" },
 };
 
 /** Returns a new config with the preset's engine stack applied (preset only; flags are the runtime truth). The "off" preset also disables live compression. */
@@ -148,6 +159,7 @@ export function sanitizeConfig(raw: unknown): StudioConfig {
 			truncate: bool(engines.truncate, DEFAULT_CONFIG.engines.truncate),
 			caveman: bool(engines.caveman, DEFAULT_CONFIG.engines.caveman),
 			sessionDedup: bool(engines.sessionDedup, DEFAULT_CONFIG.engines.sessionDedup),
+			clear: bool(engines.clear, DEFAULT_CONFIG.engines.clear),
 		},
 		cavemanIntensity: isCavemanIntensity(intensity) ? intensity : DEFAULT_CONFIG.cavemanIntensity,
 		preserveSystemPrompt: bool(src.preserveSystemPrompt, DEFAULT_CONFIG.preserveSystemPrompt),
@@ -161,6 +173,8 @@ export function sanitizeConfig(raw: unknown): StudioConfig {
 		judgeModel: str(src.judgeModel, DEFAULT_CONFIG.judgeModel),
 		costCapUsd: Math.min(5, Math.max(0.01, num(src.costCapUsd, DEFAULT_CONFIG.costCapUsd))),
 		debug: bool(src.debug, DEFAULT_CONFIG.debug),
+		clearTriggerTokens: Math.min(2_000_000, Math.max(10_000, num(src.clearTriggerTokens, DEFAULT_CONFIG.clearTriggerTokens))),
+		clearKeep: Math.min(20, Math.max(1, Math.round(num(src.clearKeep, DEFAULT_CONFIG.clearKeep)))),
 	};
 }
 

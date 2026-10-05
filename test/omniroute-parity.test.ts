@@ -8,7 +8,7 @@ import { handleBeforeProviderRequest } from "../src/live/capture";
 import { RunStore } from "../src/live/store";
 import { DEFAULT_CONFIG, applyStrategyPreset } from "../src/config";
 
-const MODEL = { id: "test-model", api: "anthropic" } as unknown as Model;
+const MODEL = { id: "test-model", api: "anthropic-messages" } as unknown as Model;
 
 function ctx(): ExtensionContext {
 	return { model: MODEL, hasUI: true } as unknown as ExtensionContext;
@@ -105,7 +105,7 @@ describe("omniroute-parity capture flow", () => {
 				{ role: "user", content: [{ type: "text", text: "Now summarize all of it with plenty of detail for me please." }] },
 			],
 		};
-		const store = new RunStore();
+		const store = new RunStore(undefined, null);
 		const config = applyStrategyPreset({ ...DEFAULT_CONFIG, enabled: true }, "omniroute");
 		const result = await handleBeforeProviderRequest(
 			{ type: "before_provider_request", payload },

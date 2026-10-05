@@ -1,5 +1,6 @@
 import type { StepResult } from "../engines/types";
 import { isLogLine } from "../log-shape";
+import { MIN_NOVEL_CHARS, normalizeLine } from "../engines/truncate";
 
 const MIN_CRITICAL_SURVIVAL_PERCENT = 95;
 const MIN_JSON_KEY_PERCENT = 90;
@@ -23,17 +24,41 @@ function unique(values: Iterable<string>): string[] {
 	return [...new Set(values)];
 }
 
+/** Unique critical needles a model must be able to recover from the text —
+ * routes through extractProtected so the log-line/repeat exemption applies:
+ * needles the engines are contracted to drop never count against recall. */
+export function criticalNeedles(input: string): string[] {
+	return extractProtected(input).critical.map((entry) => entry.needle);
+}
+
 /**
  * Needles whose every occurrence sits on a log-shaped line are exempt: log
  * noise is compressible by contract (see log-shape.ts), so structural
  * engines may drop those lines without failing the invariant.
  */
-function extractProtected(input: string): { critical: Array<{ kind: string; needle: string }>; numbers: string[] } {
+function extractProtected(input: string): { critical: Array<{ kind: string; needle: string }>; numbers: string[]; hunks: string[] } {
+	const lines = input.split("\n");
+	// Normalized-repeat lines share smartTruncate's canonical identity with an
+	// EARLIER line (digits collapsed) — the first occurrence guards every
+	// needle that shape can carry, so repeats join log lines in the exemption.
+	// Without this, counter-driven spam (`line 12: ok …`) rolls back forever:
+	// truncate treats the numbers as noise, fidelity as sacred facts.
+	const seenNormalized = new Set<string>();
+	const repeatLine = new Set<number>();
+	lines.forEach((line, idx) => {
+		const normalized = normalizeLine(line);
+		if (normalized.length < MIN_NOVEL_CHARS) return;
+		if (seenNormalized.has(normalized)) repeatLine.add(idx);
+		else seenNormalized.add(normalized);
+	});
+
 	const critical: Array<{ kind: string; needle: string }> = [];
 	const seen = new Set<string>();
 	const numbers = new Set<string>();
-	for (const line of input.split("\n")) {
-		if (isLogLine(line)) continue;
+	const hunks = new Set<string>();
+	for (let idx = 0; idx < lines.length; idx++) {
+		const line = lines[idx]!;
+		if (isLogLine(line) || repeatLine.has(idx)) continue;
 		for (const [kind, regex] of CRITICAL_RES) {
 			for (const needle of line.match(regex) ?? []) {
 				const key = `${kind}\u0000${needle}`;
@@ -44,8 +69,9 @@ function extractProtected(input: string): { critical: Array<{ kind: string; need
 			}
 		}
 		for (const number of line.match(NUMERIC_RE) ?? []) numbers.add(number);
+		for (const hunk of line.match(HUNK_RE) ?? []) hunks.add(hunk);
 	}
-	return { critical, numbers: [...numbers] };
+	return { critical, numbers: [...numbers], hunks: [...hunks] };
 }
 
 export interface FidelityVerdict {
@@ -72,7 +98,7 @@ export function fidelityCheck(step: StepResult): FidelityVerdict {
 		reason,
 	});
 
-	const { critical, numbers } = extractProtected(input);
+	const { critical, numbers, hunks } = extractProtected(input);
 	if (critical.length > 0) {
 		const survived = critical.filter(({ needle }) => output.includes(needle)).length;
 		const ratio = (survived / critical.length) * 100;
@@ -96,7 +122,6 @@ export function fidelityCheck(step: StepResult): FidelityVerdict {
 		return fail(`fidelity:numeric(${missingNumber})`);
 	}
 
-	const hunks = unique(input.match(HUNK_RE) ?? []);
 	const missingHunk = hunks.find((h) => !output.includes(h));
 	if (missingHunk !== undefined) {
 		return fail("fidelity:hunk");

@@ -6,6 +6,8 @@ import { LIVE_LANES, ENGINE_BY_LANE, type LiveLane } from "../engines/pipeline";
 import type { StepResult } from "../engines/types";
 import type { JudgeBatchResult, JudgeResult } from "../judge";
 import { judgeFidelityBatch } from "../judge";
+import type { RecoveryBatchResult } from "../recovery";
+import { judgeRecoveryBatch } from "../recovery";
 import { fmtTokens, fmtSavings, keyName, renderLine } from "./render-utils";
 import { stepToRow, waterfallLines } from "./waterfall";
 
@@ -30,6 +32,8 @@ export class CompareView implements ExtensionUiComponent {
 	rows: CompareRow[] | undefined;
 	verifyState: "idle" | "running" | "done" = "idle";
 	verify: JudgeBatchResult | undefined;
+	recoveryState: "idle" | "running" | "done" = "idle";
+	recovery: RecoveryBatchResult | undefined;
 	verifyError: string | undefined;
 	notice: string | undefined;
 
@@ -50,6 +54,10 @@ export class CompareView implements ExtensionUiComponent {
 		}
 		if (key === "ctrl+v" || key === "v") {
 			void this.verify_();
+			return true;
+		}
+		if (key === "e") {
+			void this.recoveryEval();
 			return true;
 		}
 		if (key === "ctrl+m" || key === "m") {
@@ -74,6 +82,8 @@ export class CompareView implements ExtensionUiComponent {
 		})).sort((a, b) => b.step.savingsPercent - a.step.savingsPercent || b.step.compressedTokens - a.step.compressedTokens);
 		this.verifyState = "idle";
 		this.verify = undefined;
+		this.recoveryState = "idle";
+		this.recovery = undefined;
 		this.#env.tui.requestRender();
 	}
 
@@ -122,12 +132,41 @@ export class CompareView implements ExtensionUiComponent {
 		this.#env.tui.requestRender();
 	}
 
+	/** Recovery eval: can the judge model still extract the original's needles from each lane's compressed output? */
+	async recoveryEval(): Promise<void> {
+		if (this.recoveryState === "running") return;
+		if (!this.rows) {
+			this.notice = "run first (Ctrl+R)";
+			this.#env.tui.requestRender();
+			return;
+		}
+		const text = this.#env.getSharedText();
+		const pairs = this.rows
+			.filter((row) => !row.step.rejected && row.step.output !== text)
+			.map((row) => ({ id: row.lane, original: text, compressed: row.step.output }));
+		if (pairs.length === 0) {
+			this.notice = "no compressed outputs to evaluate";
+			this.#env.tui.requestRender();
+			return;
+		}
+		this.recoveryState = "running";
+		this.#env.tui.requestRender();
+		try {
+			this.recovery = await judgeRecoveryBatch(pairs, this.#env.ctx, this.#env.getConfig());
+			this.recoveryState = "done";
+		} catch (err) {
+			this.notice = err instanceof Error ? err.message : String(err);
+			this.recoveryState = "idle";
+		}
+		this.#env.tui.requestRender();
+	}
+
 	render(width: number): readonly string[] {
 		const theme = this.#env.theme;
 		const lines: string[] = [];
 		lines.push(
 			renderLine(
-				theme.fg("dim", "Ctrl+R/r run all engines · Ctrl+V/v verify (LLM judge) · Ctrl+M/m judge model (pick from session models)"),
+				theme.fg("dim", "Ctrl+R/r run · Ctrl+V/v verify (judge) · E recovery eval · Ctrl+M/m judge model"),
 				width,
 			),
 		);
@@ -170,6 +209,30 @@ export class CompareView implements ExtensionUiComponent {
 			const spent = `spent $${this.verify.totalUsd.toFixed(4)} of $${this.#env.getConfig().costCapUsd}` +
 				(this.verify.capped ? theme.fg("warning", "  [capped]") : "");
 			lines.push(renderLine(spent, width));
+		}
+
+		if (this.recoveryState === "running") lines.push(theme.fg("accent", "recovery eval…"));
+		if (this.recovery) {
+			if (this.recovery.error) {
+				// batch-level failure (no judge model / no credentials): must not
+				// render as a silent zero-cost success
+				lines.push(theme.fg("error", `✗ recovery eval failed: ${this.recovery.error}`));
+			}
+			for (const result of this.recovery.results) {
+				if (result.recallPercent === null) {
+					const why = result.skippedCapped ? "—(cap)" : (result.error ?? "—");
+					lines.push(renderLine(`  recall ${result.id.padEnd(10)} ${why}`, width));
+					continue;
+				}
+				const color = result.recallPercent >= 95 ? "success" : result.recallPercent >= 80 ? "warning" : "error";
+				const missed = result.missed.length > 0 ? theme.fg("dim", `  missed: ${result.missed.join(", ")}`) : "";
+				lines.push(renderLine(`  recall ${result.id.padEnd(10)} ${theme.fg(color, `${result.recallPercent}%`)}${missed}`, width));
+			}
+			if (!this.recovery.error) {
+				const spent = `recovery spent $${this.recovery.totalUsd.toFixed(4)} of $${this.#env.getConfig().costCapUsd} (per batch)` +
+					(this.recovery.capped ? theme.fg("warning", "  [capped]") : "");
+				lines.push(renderLine(spent, width));
+			}
 		}
 
 		const top = this.rows[0];

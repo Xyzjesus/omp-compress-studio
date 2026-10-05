@@ -6,7 +6,8 @@ export const MAX_CHARS = 12_000;
 
 /** ERROR/WARN-style lines are informative; their first occurrence always survives. */
 const SEVERITY_LINE_RE = /(ERROR|WARN|Error:|Exception:)/;
-const MIN_NOVEL_CHARS = 8;
+/** Canonical line identity threshold — shorter normalized lines are trivial filler. */
+export const MIN_NOVEL_CHARS = 8;
 
 export interface TruncateResult {
 	text: string;
@@ -18,7 +19,7 @@ function marker(dropped: number): string {
 }
 
 /** Canonical line identity: digits are noise (counters, line numbers, ids). */
-function normalizeLine(line: string): string {
+export function normalizeLine(line: string): string {
 	return line.trim().toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ");
 }
 

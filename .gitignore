@@ -1,0 +1,4 @@
+.omp/
+.zvec-grep/
+.docs/
+.scripts/

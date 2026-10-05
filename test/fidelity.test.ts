@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fidelityCheck } from "../src/gates/fidelity";
 import { rtkEngine } from "../src/engines/rtk";
+import { truncateEngine } from "../src/engines/truncate";
 import type { StepResult } from "../src/engines/types";
 
 function stepOf(input: string, output: string): StepResult {
@@ -90,5 +91,21 @@ describe("fidelity gate", () => {
 		const verdict = fidelityCheck(step);
 		expect(verdict.ok).toBe(true);
 		expect(step.compressedTokens).toBeLessThan(step.originalTokens);
+	});
+
+	test("bare hunk headers on repeat lines do not roll truncate back", () => {
+		// Reviewer repro: headers like `@@ -12,7 +12,9 @@` normalize to the same
+		// canonical line, so smartTruncate keeps only the first — the hunk
+		// invariant must exempt repeats exactly like numbers/needles do.
+		const parts: string[] = [];
+		for (let i = 0; i < 60; i++) {
+			parts.push(`@@ -${i * 10},7 +${i * 10 + 2},9 @@`);
+			parts.push(" context line with unchanged content");
+			parts.push("+added line with some substance");
+		}
+		const text = parts.join("\n");
+		const step = truncateEngine.apply({ text, role: "tool" });
+		const verdict = fidelityCheck(step);
+		expect(verdict.ok).toBe(true);
 	});
 });
