@@ -4,6 +4,7 @@ import type { ExtensionUiComponent, ExtensionUiComponentFactory } from "@oh-my-p
 import type { StudioConfig } from "./config";
 import type { RunRecord, RunStore } from "./live/store";
 import { fmtSavings, fmtTokens, renderLine } from "./studio/render-utils";
+import { blockMemo } from "./live/block-memo";
 
 const WIDGET_KEY = "compress-studio";
 const REFRESH_INTERVAL_MS = 1_000;
@@ -32,6 +33,17 @@ class CompressWidgetComponent implements ExtensionUiComponent {
 			`── compress-studio · ${config.strategy} · ${config.enabled ? "ON" : "OFF"} ──`,
 			`saved ${fmtTokens(totals.compressedTokens)} tok (${fmtSavings(totals.savingsPercent)}) · req ${totals.requests}`,
 		];
+		const usage = this.store.usageTotals();
+		const promptTokens = usage.cacheRead + usage.input;
+		if (promptTokens > 0) {
+			const hitPct = Math.round((usage.cacheRead / promptTokens) * 100);
+			lines.push(`cache ${hitPct}% hit · read ${fmtTokens(usage.cacheRead)} · write ${fmtTokens(usage.cacheWrite)}`);
+		}
+		const memoStats = blockMemo.stats;
+		const memoTotal = memoStats.hits + memoStats.misses;
+		if (memoTotal > 0) {
+			lines.push(`memo ${Math.round((memoStats.hits / memoTotal) * 100)}% hit (${memoStats.entries} blk)`);
+		}
 		const last: RunRecord | undefined = totals.lastRun;
 		if (last) {
 			if (last.accepted) {

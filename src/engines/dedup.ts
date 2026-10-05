@@ -30,6 +30,19 @@ function withinDistance(a: string, b: string, maxEdits: number): boolean {
 	return prev[b.length] <= maxEdits;
 }
 
+const COUNT_WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"] as const;
+
+/**
+ * Elision counts are spelled in words: a digit in the marker could satisfy
+ * the substring-based numeric gate vacuously after a genuinely dropped
+ * number (reviewer repro: `batch 2` blocks elided, marker said `2`).
+ */
+function elisionMarker(removed: number): string {
+	const word = removed <= COUNT_WORDS.length ? COUNT_WORDS[removed - 1] : undefined;
+	const count = word === undefined ? "" : `${word} `;
+	return `[… ${count}duplicate block${removed === 1 ? "" : "s"} elided …]`;
+}
+
 /**
  * Session-dedup: near-identical `\\n\\n`-separated blocks (≥80 chars) are
  * collapsed to their first occurrence. Fuzzy matching is capped to keep the
@@ -78,7 +91,9 @@ export function deduplicateBlocks(text: string, fuzzy = true): { text: string; r
 	}
 
 	if (removed === 0) return { text, removed };
-	return { text: kept.join("\n\n"), removed };
+	// The elision is announced — the model must see that content was dropped,
+	// the same readable-edit contract every other stage's markers follow.
+	return { text: `${kept.join("\n\n")}\n\n${elisionMarker(removed)}`, removed };
 }
 
 export const dedupEngine: CompressionEngine = {

@@ -1,7 +1,7 @@
 import { isRecord } from "@oh-my-pi/pi-utils";
 import { isShellToolName } from "../engines/rtk";
 
-export type SupportedApi = "anthropic" | "openai-completions" | "openai-responses";
+export type SupportedApi = "anthropic-messages" | "openai-completions" | "openai-responses";
 
 export interface BlockPath {
 	message: number;
@@ -22,7 +22,11 @@ export interface ExtractedBlock {
 
 export interface Extraction {
 	blocks: ExtractedBlock[];
-	/** Immutably write `newText` back to the block's position. */
+	/**
+	 * Writes `newText` into `payload` IN PLACE and returns it. The caller owns
+	 * cloning: `handleBeforeProviderRequest` clones the original payload once
+	 * before the first write, so N block rewrites cost one copy, not N.
+	 */
 	writeBack(payload: unknown, block: ExtractedBlock, newText: string): unknown;
 }
 
@@ -124,12 +128,12 @@ function extractAnthropic(payload: Record<string, unknown>): Extraction | null {
 	return {
 		blocks,
 		writeBack(payload, block, newText) {
-			const next = structuredClone(payload) as Record<string, unknown>;
-			const message = (next.messages as unknown[])[block.path.message] as Record<string, unknown> | undefined;
+			const target = payload as Record<string, unknown>;
+			const message = (target.messages as unknown[])[block.path.message] as Record<string, unknown> | undefined;
 			if (!message) return payload;
 			if (block.kind === "user" && !Array.isArray(message.content)) {
 				message.content = newText;
-				return next;
+				return payload;
 			}
 			if (!Array.isArray(message.content)) return payload;
 			const content = message.content as unknown[];
@@ -141,7 +145,7 @@ function extractAnthropic(payload: Record<string, unknown>): Extraction | null {
 			} else {
 				part.text = newText;
 			}
-			return next;
+			return payload;
 		},
 	};
 }
@@ -196,18 +200,18 @@ function extractOpenaiCompletions(payload: Record<string, unknown>): Extraction 
 	return {
 		blocks,
 		writeBack(payload, block, newText) {
-			const next = structuredClone(payload) as Record<string, unknown>;
-			const message = (next.messages as unknown[])[block.path.message] as Record<string, unknown> | undefined;
+			const target = payload as Record<string, unknown>;
+			const message = (target.messages as unknown[])[block.path.message] as Record<string, unknown> | undefined;
 			if (!message) return payload;
 			if (block.contentKind === "string" || message.role === "tool") {
 				message.content = newText;
-				return next;
+				return payload;
 			}
 			const content = message.content as unknown[];
 			const part = content[block.path.part] as Record<string, unknown> | undefined;
 			if (!part) return payload;
 			part.text = newText;
-			return next;
+			return payload;
 		},
 	};
 }
@@ -251,18 +255,18 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 	return {
 		blocks,
 		writeBack(payload, block, newText) {
-			const next = structuredClone(payload) as Record<string, unknown>;
-			const item = (next.input as unknown[])[block.path.message] as Record<string, unknown> | undefined;
+			const target = payload as Record<string, unknown>;
+			const item = (target.input as unknown[])[block.path.message] as Record<string, unknown> | undefined;
 			if (!item) return payload;
 			if (item.type === "function_call_output") {
 				item.output = newText;
-				return next;
+				return payload;
 			}
 			if (!Array.isArray(item.content)) return payload;
 			const part = item.content[block.path.part] as Record<string, unknown> | undefined;
 			if (!part) return payload;
 			part.text = newText;
-			return next;
+			return payload;
 		},
 	};
 }
@@ -271,7 +275,7 @@ function extractOpenaiResponses(payload: Record<string, unknown>): Extraction | 
 export function extractBlocks(payload: unknown, api: string): Extraction | null {
 	if (!isRecord(payload)) return null;
 	switch (api) {
-		case "anthropic":
+		case "anthropic-messages":
 			return extractAnthropic(payload);
 		case "openai-completions":
 			return extractOpenaiCompletions(payload);

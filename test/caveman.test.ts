@@ -55,3 +55,59 @@ describe("caveman engine", () => {
 		expect(ultra.output).toContain("each");
 	});
 });
+
+describe("caveman ru", () => {
+	test("mixed text with cyrillic majority never applies en rules", () => {
+		const text = "Спасибо, что помог. Я бы хотел very slowly реализовать подход, make sure to не сломать кейс.";
+		const step = applyCaveman({ text, role: "user" }, { cavemanIntensity: "full" });
+		expect(step.rulesApplied).not.toContain("articles");
+		expect(step.rulesApplied).not.toContain("redundant_phrasing");
+		expect(step.rulesApplied).not.toContain("emphasis_removal");
+		expect(step.rulesApplied).not.toContain("pleasantries");
+		expect(step.rulesApplied).toContain("ru_pleasantries");
+		expect(step.output).toContain("very slowly");
+		expect(step.output).toContain("make sure to");
+	});
+
+	test("manual ru rules compress greeting, emphasis, qualifiers, parentheticals", () => {
+		const text = "Привет! Конечно, очень важно проверить это. Кроме того, как бы сказать, что всё работает.";
+		const step = applyCaveman({ text, role: "user" }, { cavemanIntensity: "full" });
+		expect(step.rulesApplied).toContain("ru_redundant_openers");
+		expect(step.rulesApplied).toContain("ru_emphasis");
+		expect(step.rulesApplied).toContain("ru_qualifiers");
+		expect(step.output).toBe("Важно проверить это. Сказать, что всё работает.");
+		expect(step.output).not.toMatch(/,,|\s,/);
+	});
+
+	test("framed hedging removal absorbs comma frame", () => {
+		const text = "Сборка, возможно, займёт дополнительное время, прежде чем всё завершится.";
+		const step = applyCaveman({ text, role: "user" }, { cavemanIntensity: "full" });
+		expect(step.rulesApplied).toContain("ru_hedging");
+		expect(step.output).toBe("Сборка займёт дополнительное время, прежде чем всё завершится.");
+	});
+
+	test("ru pipeline is idempotent", () => {
+		const text = "Привет! Конечно, очень важно проверить это. Кроме того, как бы сказать, что всё работает.";
+		const once = applyCaveman({ text, role: "user" }, { cavemanIntensity: "full" }).output;
+		const twice = applyCaveman({ text: once, role: "user" }, { cavemanIntensity: "full" }).output;
+		expect(twice).toBe(once);
+	});
+
+	test("protected spans gate skips ru rule phase entirely", () => {
+		const text = "См. src/engines/caveman.ts, версия 1.2.3. Очень важно.";
+		const step = applyCaveman({ text, role: "user" }, { cavemanIntensity: "full" });
+		expect(step.rejected).toBe(true);
+		expect(step.rejectReason).toBe("no-gain");
+		expect(step.output).toBe(text);
+	});
+
+	test("word-form classes fire wf_hedges and wf_determiners", () => {
+		// «очевидно» is wordform-only (manual ru_hedging doesn't list it) so ru_wf_hedges must be the firing rule.
+		const text = "Этот файл, очевидно, довольно большой для сборки и требует проверки.";
+		const step = applyCaveman({ text, role: "user" }, { cavemanIntensity: "full" });
+		expect(step.rulesApplied).toContain("ru_wf_hedges");
+		expect(step.rulesApplied).toContain("ru_wf_determiners");
+		expect(step.output).toBe("Файл довольно большой для сборки и требует проверки.");
+		expect(step.output).not.toMatch(/,,|\s,/);
+	});
+});

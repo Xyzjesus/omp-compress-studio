@@ -57,7 +57,7 @@ export class SettingsView implements ExtensionUiComponent {
 				},
 				cycle: (dir) => this.applyStrategy(strategyNeighbor(env.getConfig().strategy, dir)),
 			},
-			...(["dedup", "rtk", "truncate", "caveman", "sessionDedup"] as const).map((engine) => ({
+			...(["dedup", "rtk", "truncate", "caveman", "sessionDedup", "clear"] as const).map((engine) => ({
 				label: `engine ${engine}`,
 				value: () => (env.getConfig().engines[engine] ? "on" : "off"),
 				toggle: () => this.setConfig((c) => ({ ...c, engines: { ...c.engines, [engine]: !c.engines[engine] } })),

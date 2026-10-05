@@ -282,6 +282,7 @@ export class PlayView implements ExtensionUiComponent {
 				truncate: this.enabledLanes.truncate,
 				caveman: this.enabledLanes.caveman,
 				sessionDedup: c.engines.sessionDedup,
+				clear: c.engines.clear,
 			},
 		}));
 	}

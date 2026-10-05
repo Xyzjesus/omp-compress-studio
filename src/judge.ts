@@ -40,15 +40,39 @@ export function parseVerdict(text: string): JudgeVerdict {
 	return "unparseable";
 }
 
-function assistantText(message: AssistantMessage): string {
+
+export function assistantText(message: AssistantMessage): string {
 	return message.content
-		.filter((block) => block.type === "text")
-		.map((block) => (block.type === "text" ? block.text : ""))
+		.filter((block): block is Extract<typeof message.content[number], { type: "text" }> => block.type === "text")
+		.map((block) => block.text)
 		.join("\n");
 }
 
-function judgeCostUsd(model: Model, usage: AssistantMessage["usage"]): number {
+export function judgeCostUsd(model: Model, usage: AssistantMessage["usage"]): number {
 	return (usage.input / 1e6) * model.cost.input + (usage.output / 1e6) * model.cost.output;
+}
+
+export interface JudgeRuntime {
+	model: Model;
+	apiKey: string;
+}
+
+/** Shared model/credential resolution for judge-style batches (fidelity + recovery). */
+export async function resolveJudgeRuntime(
+	ctx: ExtensionContext,
+	config: StudioConfig,
+): Promise<JudgeRuntime | { error: string }> {
+	const model: Model | undefined = config.judgeModel ? ctx.models.resolve(config.judgeModel) : ctx.model;
+	if (!model) return { error: "no judge model available" };
+	let apiKey: string | undefined;
+	try {
+		apiKey = await ctx.modelRegistry.getApiKey(model);
+	} catch (err) {
+		if (err instanceof Error && err.message === "aborted") throw err;
+		apiKey = undefined;
+	}
+	if (!apiKey) return { error: `no credentials for ${model.provider}` };
+	return { model, apiKey };
 }
 
 /**
