@@ -17,7 +17,7 @@ describe("quantum lock", () => {
 	});
 
 	test("jwt and bearer are locked in fixed order", () => {
-		const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+		const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"; // gitleaks:allow — textbook jwt.io sample, quantumLock fixture
 		const text = `Bearer ${jwt}`;
 		const lock = quantumLock(text);
 		expect(lock.stats.fragments).toBe(1); // jwt wins before the bearer rule
