@@ -2,3 +2,4 @@
 .zvec-grep/
 .docs/
 .scripts/
+node_modules/
