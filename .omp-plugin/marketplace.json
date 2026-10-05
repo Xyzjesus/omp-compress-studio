@@ -1,0 +1,22 @@
+{
+	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+	"name": "omp-compress-studio",
+	"owner": {
+		"name": "Xyzjesus"
+	},
+	"metadata": {
+		"description": "Self-marketplace for the omp-compress-studio extension"
+	},
+	"plugins": [
+		{
+			"name": "omp-compress-studio",
+			"description": "Compression studio + live traffic compression for oh-my-pi (omp)",
+			"version": "0.1.0",
+			"source": "./",
+			"category": "productivity",
+			"homepage": "https://github.com/Xyzjesus/omp-compress-studio",
+			"repository": "https://github.com/Xyzjesus/omp-compress-studio",
+			"keywords": ["compression", "omp", "tui"]
+		}
+	]
+}

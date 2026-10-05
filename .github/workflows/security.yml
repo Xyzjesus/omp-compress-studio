@@ -1,0 +1,81 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly Monday refresh of scanner vulnerability databases.
+    - cron: '17 3 * * 1'
+
+jobs:
+  zizmor:
+    # GitHub Actions injection audit: template-injection, dangerous-triggers,
+    # artipacked, excessive-permissions, unpinned-uses, etc. (docs.zizmor.sh/audits)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # SARIF upload to the Security tab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Run zizmor (SARIF for the Security tab)
+        # SARIF mode always exits 0 (docs.zizmor.sh/usage), results go to upload below.
+        run: uvx zizmor@1.30.1 --no-online-audits --format=sarif . > zizmor.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
+      - name: Gate on findings
+        # Non-SARIF formats exit 11-14 when findings exist (docs.zizmor.sh/usage).
+        run: uvx zizmor@1.30.1 --no-online-audits --format=github .
+
+  secrets:
+    # Leaked credentials across the full git history (gitleaks/gitleaks-action).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history, required by gitleaks-action
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE is required for organizations only, not personal accounts.
+
+  deps:
+    # CVEs + secrets + misconfigurations in the working tree.
+    # Trivy is the only mainstream scanner that reads bun.lock
+    # (trivy.dev/docs/latest/coverage/language/nodejs); GitHub's dependency
+    # graph does not support Bun lockfiles.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1' # fail the job on findings
+          format: sarif
+          output: trivy-results.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy

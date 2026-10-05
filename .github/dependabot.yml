@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Only GitHub Actions: Dependabot does not support bun.lock
+  # (docs.github.com/code-security/reference/supply-chain-security/dependency-graph-supported-package-ecosystems).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
